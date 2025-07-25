@@ -1,0 +1,55 @@
+{
+  "AWSTemplateFormatVersion": "2010-09-09",
+  "Transform": "AWS::Serverless-2016-10-31",
+  "Description": "Esizzle API - Hydra Due Diligence Application - ASP.NET Core Web API running in Amazon Lambda.",
+  "Parameters": {},
+  "Conditions": {},
+  "Resources": {
+    "EsizzleAPI": {
+      "Type": "AWS::Serverless::Function",
+      "Properties": {
+        "Handler": "EsizzleAPI",
+        "Runtime": "dotnet8",
+        "CodeUri": "",
+        "MemorySize": 1024,
+        "Timeout": 30,
+        "Role": null,
+        "Policies": [
+          "AWSLambda_FullAccess",
+          "SecretsManagerReadWrite",
+          "S3FullAccess"
+        ],
+        "Environment": {
+          "Variables": {
+            "SECRET_ARN": "arn:aws:secretsmanager:us-east-1:123456789012:secret:loanmaster-db-secret",
+            "TokenSecretKey": "4R27CP2zd//HL2TXVbIhI+304UM2IMhetUXhJRcbYgg="
+          }
+        },
+        "Events": {
+          "ProxyResource": {
+            "Type": "Api",
+            "Properties": {
+              "Path": "/{proxy+}",
+              "Method": "ANY"
+            }
+          },
+          "RootResource": {
+            "Type": "Api",
+            "Properties": {
+              "Path": "/",
+              "Method": "ANY"
+            }
+          }
+        }
+      }
+    }
+  },
+  "Outputs": {
+    "ApiURL": {
+      "Description": "API endpoint URL for Prod environment",
+      "Value": {
+        "Fn::Sub": "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/"
+      }
+    }
+  }
+}

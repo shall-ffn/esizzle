@@ -1,0 +1,40 @@
+##############################
+# Node / Vite build artefacts
+##############################
+node_modules/
+dist/
+build/
+.vite-cache/
+.turbo/
+.parcel-cache/
+
+##############################
+# Environment & secrets
+##############################
+.env
+.env.*
+*.local
+*.secret.*
+
+##############################
+# Logs & diagnostics
+##############################
+npm-debug.log*
+yarn-debug.log*
+pnpm-debug.log*
+*.log
+
+##############################
+# Testing / coverage
+##############################
+coverage/
+*.lcov
+
+##############################
+# IDE / editor folders
+##############################
+.vscode/
+.idea/
+*.code-workspace
+*.swp
+*.swo

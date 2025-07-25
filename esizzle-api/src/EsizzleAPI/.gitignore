@@ -1,0 +1,78 @@
+##############################
+# General OS / Editor noise
+##############################
+.DS_Store
+Thumbs.db
+*.log
+*.tmp
+*.bak
+*.swp
+*.swo
+
+##############################
+# Git, IDE, tooling
+##############################
+.idea/
+.vscode/
+*.code-workspace
+*.suo
+*.user
+*.userosscache
+*.sln.docstates
+
+##############################
+# .NET / C# build artifacts
+##############################
+bin/
+obj/
+# Visual Studio profiler
+*.vsp
+*.vspx
+*.sap
+*.cache
+
+# Packages / NuGet
+*.nupkg
+**/packages/*
+# Rider / Resharper
+_ReSharper*/
+*/_ReSharper*/
+*.DotSettings.user
+
+# Build output
+*.dll
+*.exe
+*.pdb
+*.mdb
+
+##############################
+# Secrets & environment files
+##############################
+.env
+.env.*
+*.secrets.json
+
+##############################
+# Front-end (Node / Vite)
+##############################
+node_modules/
+dist/
+build/
+.turbo/
+.parcel-cache/
+.vite-cache/
+npm-debug.log*
+
+##############################
+# Testing / coverage
+##############################
+coverage/
+*.lcov
+
+##############################
+# Logs & diagnostics
+##############################
+*.log
+logs/
+*.pid
+*.pid.lock
