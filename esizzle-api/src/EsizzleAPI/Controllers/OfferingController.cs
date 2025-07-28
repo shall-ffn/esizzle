@@ -26,46 +26,44 @@ public class OfferingController : ControllerBase
     }
 
     /// <summary>
-    /// Get all offerings that the current user has access to
+    /// Get all offerings that the current user has access to using legacy filtering logic
     /// </summary>
     [HttpGet("user-offerings")]
     public async Task<IActionResult> GetUserOfferings()
     {
         try
         {
-            int userId;
+            var authUser = HttpContext.Items["AuthorizedUser"] as AuthorizedUser;
+            string userEmail;
             
-            // Check for mock auth headers in development
-            if (HttpContext.Request.Headers.ContainsKey("X-Mock-User-Id"))
+            if (authUser == null)
             {
-                var mockUserIdHeader = HttpContext.Request.Headers["X-Mock-User-Id"].FirstOrDefault();
+                // Fallback to mock auth headers in development
                 var mockUserEmail = HttpContext.Request.Headers["X-Mock-User-Email"].FirstOrDefault();
+                if (string.IsNullOrEmpty(mockUserEmail))
+                {
+                    return Unauthorized("User authentication required");
+                }
                 
-                if (int.TryParse(mockUserIdHeader, out userId))
-                {
-                    _logger.LogInformation("Using mock auth - Getting offerings for user {UserId} ({Email})", 
-                        userId, mockUserEmail);
-                }
-                else
-                {
-                    _logger.LogWarning("Invalid mock user ID header: {MockUserId}", mockUserIdHeader);
-                    return BadRequest("Invalid mock user ID");
-                }
+                userEmail = mockUserEmail;
+                _logger.LogInformation("Using mock auth - Getting offerings for user {Email}", userEmail);
             }
             else
             {
-                // Normal authenticated user (from JWT claims)
-                var authUser = HttpContext.Items["AuthorizedUser"] as AuthorizedUser;
-                if (authUser == null)
-                {
-                    return Unauthorized("User not authenticated");
-                }
-                userId = authUser.Id;
-                _logger.LogInformation("Getting offerings for authenticated user {UserId}", userId);
+                userEmail = authUser.Email;
+                _logger.LogInformation("Getting offerings for authenticated user {Email}", userEmail);
             }
-
-            var offerings = await _offeringRepository.GetUserOfferingsAsync(userId);
-
+            
+            // Check if user is admin/super user (legacy logic)
+            var isAdmin = await _securityRepository.IsSuperUser(userEmail);
+            _logger.LogInformation("User {Email} admin status: {IsAdmin}", userEmail, isAdmin);
+            
+            // Get offerings using legacy filtering logic
+            var offerings = await _securityRepository.GetOfferingsForUser(userEmail, isAdmin);
+            
+            _logger.LogInformation("Retrieved {Count} offerings for user {Email} (admin: {IsAdmin})", 
+                offerings.Count, userEmail, isAdmin);
+            
             return Ok(offerings);
         }
         catch (Exception ex)

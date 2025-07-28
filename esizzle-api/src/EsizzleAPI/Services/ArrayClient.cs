@@ -6,6 +6,8 @@ using System.Net.Http.Headers;
 using System.Text;
 using System.Net;
 using Newtonsoft.Json;
+using EsizzleAPI.Repositories;
+using SystemTextJson = System.Text.Json.JsonSerializer;
 
 namespace EsizzleAPI.Services;
 
@@ -59,6 +61,13 @@ public class ArrayClient : IArrayClient
         
         // Initialize legacy path configurations
         _arrayApiBaseAddress = configuration["ArrayAPI:BaseUrl"];
+        var tokenBaseUrl = configuration["ArrayToken:BaseUrl"];
+        
+        // Log configuration values for debugging
+        _logger.LogInformation("ArrayAPI:BaseUrl configured as: {BaseUrl}", _arrayApiBaseAddress);
+        _logger.LogInformation("ArrayToken:BaseUrl configured as: {TokenBaseUrl}", tokenBaseUrl);
+        _logger.LogInformation("ArrayAPI:UseMockData configured as: {UseMockData}", configuration.GetValue<bool>("ArrayAPI:UseMockData", true));
+        
         _tokenPath = configuration["ArrayAPI:TokenPath"] ?? "/token";
         _controllerPath = configuration["ArrayAPI:ControllerPath"] ?? "/prod/api/v0/flightdeck/";
         _userIntegrationPath = configuration["ArrayAPI:UserIntegrationPath"] ?? "/prod/api/v0/flightdeck/user/{0}";
@@ -167,7 +176,7 @@ public class ArrayClient : IArrayClient
         try
         {
             var tokenBaseUrl = _configuration["ArrayToken:BaseUrl"];
-            var tokenEndpoint = _configuration["ArrayToken:Endpoint"] ?? "/api/token";
+            var tokenEndpoint = _configuration["ArrayToken:Endpoint"] ?? "/token";
             var useMockData = _configuration.GetValue<bool>("ArrayToken:UseMockData", true);
             var timeout = _configuration.GetValue<int>("ArrayToken:Timeout", 30000);
             
@@ -179,6 +188,8 @@ public class ArrayClient : IArrayClient
                 return _accessToken;
             }
             
+            _logger.LogInformation("Requesting token from {BaseUrl}{Endpoint}", tokenBaseUrl, tokenEndpoint);
+            
             // Create a separate HttpClient for token requests with appropriate timeout
             using var tokenClient = new HttpClient
             {
@@ -189,28 +200,44 @@ public class ArrayClient : IArrayClient
             // Add any necessary headers for token request
             tokenClient.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
             
-            // Prepare token request payload - adjust as needed for your token endpoint
-            var tokenRequest = new
-            {
-                client_id = _configuration["ArrayToken:ClientId"] ?? "esizzle-client",
-                client_secret = _configuration["ArrayToken:ClientSecret"] ?? "esizzle-secret",
-                grant_type = "client_credentials",
-                scope = "api"
-            };
+            // Get credentials from configuration
+            var username = _configuration["ArrayToken:Username"] ?? "system@arraytechnology.com";
+            var password = _configuration["ArrayToken:Password"] ?? "default-password";
             
-            var tokenResponse = await tokenClient.PostAsync(
-                tokenEndpoint,
-                new StringContent(
-                    JsonSerializer.Serialize(tokenRequest),
-                    Encoding.UTF8,
-                    "application/json"
-                )
-            );
+            _logger.LogInformation("Using credentials for user: {Username}", username);
+            
+            // Prepare token request with x-www-form-urlencoded format as required - exactly matching Postman
+            var formContent = new FormUrlEncodedContent(new[]
+            {
+                new KeyValuePair<string, string>("grant_type", "password"),
+                new KeyValuePair<string, string>("username", username),
+                new KeyValuePair<string, string>("password", password)
+            });
+            
+            // Create a request message directly for more control over headers and content
+            var request = new HttpRequestMessage(HttpMethod.Post, tokenEndpoint);
+            
+            // Set content-type header at both request and content levels
+            request.Headers.Accept.Add(new MediaTypeWithQualityHeaderValue("application/json"));
+            
+            // Use StringContent directly for guaranteed control over Content-Type
+            string formData = $"grant_type=password&username={Uri.EscapeDataString(username)}&password={Uri.EscapeDataString(password)}";
+            var content = new StringContent(formData, Encoding.UTF8, "application/x-www-form-urlencoded");
+            request.Content = content;
+            
+            // Add debugging to see what's being sent
+            _logger.LogInformation("Sending token request to {BaseUrl}{Endpoint} with parameters: grant_type=password, username={Username}, content-type={ContentType}", 
+                tokenClient.BaseAddress, tokenEndpoint, username, content.Headers.ContentType);
+            
+            var tokenResponse = await tokenClient.SendAsync(request);
+            
+            // Read the response content regardless of status code for logging
+            var responseContent = await tokenResponse.Content.ReadAsStringAsync();
             
             if (tokenResponse.IsSuccessStatusCode)
             {
-                var jsonResponse = await tokenResponse.Content.ReadAsStringAsync();
-                var tokenData = JsonSerializer.Deserialize<TokenResponse>(jsonResponse);
+                _logger.LogInformation("Token request successful, response: {Response}", responseContent);
+                var tokenData = SystemTextJson.Deserialize<TokenResponse>(responseContent);
                 
                 if (tokenData != null)
                 {
@@ -219,6 +246,11 @@ public class ArrayClient : IArrayClient
                     _logger.LogInformation("Successfully retrieved access token, expires in {ExpiresIn} seconds", tokenData.ExpiresIn);
                     return _accessToken;
                 }
+            }
+            else
+            {
+                _logger.LogError("Token request failed. Status: {StatusCode}, Response: {Response}", 
+                    tokenResponse.StatusCode, responseContent);
             }
             
             _logger.LogError("Failed to retrieve access token. Status: {StatusCode}", tokenResponse.StatusCode);
@@ -268,9 +300,9 @@ public class ArrayClient : IArrayClient
             else if (method == HttpMethod.Post)
             {
                 var content = new StringContent(
-                    JsonSerializer.Serialize(data),
+                    SystemTextJson.Serialize(data),
                     Encoding.UTF8,
-                    "application/json"
+                    new MediaTypeHeaderValue("application/json")
                 );
                 response = await _httpClient.PostAsync(requestUri, content);
             }
@@ -282,7 +314,7 @@ public class ArrayClient : IArrayClient
             if (response.IsSuccessStatusCode)
             {
                 var jsonContent = await response.Content.ReadAsStringAsync();
-                return JsonSerializer.Deserialize<T>(jsonContent);
+                return SystemTextJson.Deserialize<T>(jsonContent);
             }
             
             _logger.LogWarning("API call failed: {StatusCode} - {Endpoint}", response.StatusCode, endpoint);
@@ -301,22 +333,29 @@ public class ArrayClient : IArrayClient
         {
             var useMockData = _configuration.GetValue<bool>("ArrayAPI:UseMockData", true);
             
+            _logger.LogInformation("GetUserSystemRolesAsync called for {Email}. UseMockData: {UseMockData}, BaseAddress: {BaseAddress}", 
+                userEmail, useMockData, _arrayApiBaseAddress);
+            
             if (useMockData || string.IsNullOrEmpty(_arrayApiBaseAddress))
             {
                 _logger.LogInformation("Using database fallback for user system roles: {Email}", userEmail);
                 return await GetUserSystemRolesFromDatabaseAsync(userEmail);
             }
             
-            // Make authenticated API call using our helper method
-            var endpoint = $"/api/users/{Uri.EscapeDataString(userEmail)}/system-roles";
-            var roles = await MakeAuthenticatedRequestAsync<List<string>>(endpoint, HttpMethod.Get);
+            // Use the configured UserIntegrationPath instead of hardcoded endpoint
+            var endpoint = string.Format(_userIntegrationPath, Uri.EscapeDataString(userEmail));
+            _logger.LogInformation("Making API call to endpoint: {Endpoint} for user {Email}", endpoint, userEmail);
             
-            if (roles != null)
+            // Get the full user integration data and extract system roles
+            var userData = await MakeAuthenticatedRequestAsync<UserIntegrationModel>(endpoint, HttpMethod.Get);
+            
+            if (userData?.SystemRoles != null)
             {
-                return roles.Select(r => Enum.TryParse<SystemRole>(r, true, out var role) ? role : (SystemRole?)null)
-                           .Where(r => r.HasValue)
-                           .Select(r => r!.Value)
-                           .ToList();
+                _logger.LogInformation("API call returned {Count} system roles for user {Email}: {Roles}", 
+                    userData.SystemRoles.Count, userEmail, string.Join(", ", userData.SystemRoles));
+                
+                // Convert from Models.SystemRoleEnum to Services.SystemRole
+                return userData.SystemRoles.Select(role => (SystemRole)Enum.ToObject(typeof(SystemRole), (int)role)).ToList();
             }
             
             // Fallback to database if API call failed or returned null
@@ -359,7 +398,13 @@ public class ArrayClient : IArrayClient
             var content = response.Content.ReadAsStringAsync().Result;
             var userData = JsonConvert.DeserializeObject<UserIntegrationModel>(content);
             
-            return userData?.SystemRoles ?? new List<SystemRoleEnum>();
+            // Convert from Models.SystemRoleEnum to Services.SystemRoleEnum
+            if (userData?.SystemRoles != null)
+            {
+                return userData.SystemRoles.Select(role => (SystemRoleEnum)Enum.ToObject(typeof(SystemRoleEnum), (int)role)).ToList();
+            }
+            
+            return new List<SystemRoleEnum>();
         }
         catch (Exception ex)
         {
@@ -854,7 +899,7 @@ public class ArrayClient : IArrayClient
                 UserId = 1,
                 ClientId = 1,
                 Permissions = new[] { "read", "write" },
-                SystemRoles = new List<SystemRoleEnum> { SystemRoleEnum.Administrator },
+                SystemRoles = new List<Models.SystemRoleEnum> { Models.SystemRoleEnum.Administrator },
                 ProjectRoles = new List<ProjectRoleModel>
                 {
                     new ProjectRoleModel
@@ -867,22 +912,38 @@ public class ArrayClient : IArrayClient
             };
         }
         
-        try
+        UserIntegrationModel retval = null;
+        using (var client = GetHttpClient())
         {
-            var url = string.Format(_userIntegrationPath, Uri.EscapeDataString(email));
-            using var client = GetHttpClient();
-            
-            var response = ValidatedResponse(client.GetAsync(url).Result);
-            var content = response.Content.ReadAsStringAsync().Result;
-            var userData = JsonConvert.DeserializeObject<UserIntegrationModel>(content);
-            
-            return userData ?? new UserIntegrationModel { Email = email };
+            try
+            {
+                var encodedEmail = System.Web.HttpUtility.UrlEncode(email); // Encode only the email
+                var resourcePath = String.Format(_userIntegrationPath, encodedEmail); // Insert encoded email into the path
+                var response = ValidatedResponse(client.GetAsync(resourcePath).Result);
+
+                if (response.StatusCode == HttpStatusCode.OK)
+                {
+                    retval = JsonConvert.DeserializeObject<UserIntegrationModel>(response.Content.ReadAsStringAsync().Result);
+                    
+                    // Post-process permissions to remove spaces and slashes
+                    if (retval?.Permissions != null)
+                    {
+                        for (int i = 0; i < retval.Permissions.Length; i++)
+                        {
+                            if (retval.Permissions[i].Contains(" ") || retval.Permissions[i].Contains("/"))
+                                retval.Permissions[i] = retval.Permissions[i].Replace(" ", string.Empty).Replace("/", string.Empty);
+                        }
+                    }
+                }
+            }
+            catch (System.Exception ex)
+            {
+                _logger.LogError(ex, "Error getting user integration data for {Email}", email);
+                System.Diagnostics.Debug.WriteLine(ex.Message);
+                throw ex;
+            }
         }
-        catch (Exception ex)
-        {
-            _logger.LogError(ex, "Error getting user integration data for {Email}", email);
-            return new UserIntegrationModel { Email = email };
-        }
+        return retval;
     }
     
     /// <summary>

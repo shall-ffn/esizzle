@@ -91,6 +91,7 @@ public class UserIntegrationModel
     public string[] Permissions { get; set; } = Array.Empty<string>();
     public List<SystemRoleEnum> SystemRoles { get; set; } = new List<SystemRoleEnum>();
     public List<ProjectRoleModel> ProjectRoles { get; set; } = new List<ProjectRoleModel>();
+    public string? DefaultBucketPrefix { get; set; }
 }
 
 /// <summary>
