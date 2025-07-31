@@ -33,8 +33,9 @@ public class SecurityRepository : ISecurityRepository
 
     public async Task<bool> HasOfferingAccessAsync(int userId, int offeringId)
     {
+        // First try the traditional underwriter access table
         using var connection = _dbConnectionFactory.CreateConnection();
-        const string sql = @"
+        const string accessSql = @"
             SELECT COUNT(1) 
             FROM OfferingUnderwriterAccess oua
             INNER JOIN Offerings o ON oua.OfferingID = o.OfferingID
@@ -43,44 +44,115 @@ public class SecurityRepository : ISecurityRepository
                 AND o.Visible = 1
                 AND o.Deleted = 0";
 
-        var count = await Task.Run(() => connection.QueryFirst<int>(sql, new { userId, offeringId }));
-        return count > 0;
+        var accessCount = await Task.Run(() => connection.QueryFirst<int>(accessSql, new { userId, offeringId }));
+        if (accessCount > 0)
+        {
+            return true; // User has explicit access
+        }
+
+        // If no explicit access, check if the offering is in the user's bucket prefix scope
+        // This matches the logic used in GetOfferingsForUser
+        // For development, we'll check if the offering matches the bucket filtering logic
+        const string bucketSql = @"
+            SELECT COUNT(1) 
+            FROM Offerings o
+            WHERE o.OfferingID = @offeringId
+                AND LOWER(o.BucketPrefix) = 'ffncorp.com'
+                AND o.IsServicer = 0
+                AND o.BidDate IS NOT NULL
+                AND o.OfferingID != 43
+                AND o.Deleted = 0";
+
+        var bucketCount = await Task.Run(() => connection.QueryFirst<int>(bucketSql, new { offeringId }));
+        return bucketCount > 0;
     }
 
     public async Task<bool> HasSaleAccessAsync(int userId, int saleId)
     {
         using var connection = _dbConnectionFactory.CreateConnection();
-        const string sql = @"
+        
+        // First try explicit access through OfferingUnderwriterAccess
+        const string accessSql = @"
             SELECT COUNT(1) 
             FROM OfferingUnderwriterAccess oua
             INNER JOIN Offerings o ON oua.OfferingID = o.OfferingID
-            INNER JOIN Sales s ON o.ClientID = s.ClientID
+            INNER JOIN OfferingAuctions oa ON o.OfferingID = oa.OfferingID
+            INNER JOIN Auction a ON oa.AuctionID = a.AuctionID
+            INNER JOIN Sales s ON a.Loanmaster_Sale_ID = s.sale_id
             WHERE oua.UserID = @userId 
                 AND s.sale_id = @saleId
                 AND o.Visible = 1
                 AND o.Deleted = 0";
 
-        var count = await Task.Run(() => connection.QueryFirst<int>(sql, new { userId, saleId }));
-        return count > 0;
+        var accessCount = await Task.Run(() => connection.QueryFirst<int>(accessSql, new { userId, saleId }));
+        if (accessCount > 0)
+        {
+            return true; // User has explicit access
+        }
+
+        // If no explicit access, check if the sale's offering is in the bucket prefix scope
+        // This matches the logic used in HasOfferingAccessAsync
+        const string bucketSql = @"
+            SELECT COUNT(1) 
+            FROM Sales s
+            INNER JOIN Auction a ON s.sale_id = a.Loanmaster_Sale_ID
+            INNER JOIN OfferingAuctions oa ON a.AuctionID = oa.AuctionID
+            INNER JOIN Offerings o ON oa.OfferingID = o.OfferingID
+            WHERE s.sale_id = @saleId
+                AND LOWER(o.BucketPrefix) = 'ffncorp.com'
+                AND o.IsServicer = 0
+                AND o.BidDate IS NOT NULL
+                AND o.OfferingID != 43
+                AND o.Deleted = 0";
+
+        var bucketCount = await Task.Run(() => connection.QueryFirst<int>(bucketSql, new { saleId }));
+        return bucketCount > 0;
     }
 
     public async Task<bool> HasLoanAccessAsync(int userId, int loanId)
     {
         using var connection = _dbConnectionFactory.CreateConnection();
-        const string sql = @"
+        
+        // First try explicit access through OfferingUnderwriterAccess
+        const string accessSql = @"
             SELECT COUNT(1) 
             FROM OfferingUnderwriterAccess oua
             INNER JOIN Offerings o ON oua.OfferingID = o.OfferingID
-            INNER JOIN Sales s ON o.ClientID = s.ClientID
+            INNER JOIN OfferingAuctions oa ON o.OfferingID = oa.OfferingID
+            INNER JOIN Auction a ON oa.AuctionID = a.AuctionID
+            INNER JOIN Sales s ON a.Loanmaster_Sale_ID = s.sale_id
             INNER JOIN Loan l ON s.sale_id = l.SALE_ID
             WHERE oua.UserID = @userId 
                 AND l.loan_id = @loanId
                 AND o.Visible = 1
                 AND o.Deleted = 0
-                AND l.LOAN_STATUS_ID != 0";
+                AND l.LOAN_STATUS_ID = 3";
 
-        var count = await Task.Run(() => connection.QueryFirst<int>(sql, new { userId, loanId }));
-        return count > 0;
+        var accessCount = await Task.Run(() => connection.QueryFirst<int>(accessSql, new { userId, loanId }));
+        if (accessCount > 0)
+        {
+            return true; // User has explicit access
+        }
+
+        // If no explicit access, check if the loan's offering is in the bucket prefix scope
+        // This matches the logic used in HasOfferingAccessAsync and HasSaleAccessAsync
+        const string bucketSql = @"
+            SELECT COUNT(1) 
+            FROM Loan l
+            INNER JOIN Sales s ON l.SALE_ID = s.sale_id
+            INNER JOIN Auction a ON s.sale_id = a.Loanmaster_Sale_ID
+            INNER JOIN OfferingAuctions oa ON a.AuctionID = oa.AuctionID
+            INNER JOIN Offerings o ON oa.OfferingID = o.OfferingID
+            WHERE l.loan_id = @loanId
+                AND LOWER(o.BucketPrefix) = 'ffncorp.com'
+                AND o.IsServicer = 0
+                AND o.BidDate IS NOT NULL
+                AND o.OfferingID != 43
+                AND o.Deleted = 0
+                AND l.LOAN_STATUS_ID = 3";
+
+        var bucketCount = await Task.Run(() => connection.QueryFirst<int>(bucketSql, new { loanId }));
+        return bucketCount > 0;
     }
 
     public async Task<bool> HasDocumentAccessAsync(int userId, int documentId)

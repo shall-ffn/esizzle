@@ -30,7 +30,7 @@ public class LoanRepository : ILoanRepository
             FROM Loan l
             LEFT JOIN Image i ON l.loan_id = i.LoanID AND i.Deleted = 0
             WHERE l.SALE_ID = @saleId 
-                AND l.LOAN_STATUS_ID != 0
+                AND l.LOAN_STATUS_ID = 3  -- Published status, matching original implementation
             GROUP BY l.loan_id, l.ASSET_NO, l.ASSET_NAME, l.ASSET_NAME2, 
                      l.BOOK_BALANCE, l.LOADED_ON, l.SALE_ID, l.LOAN_STATUS_ID
             ORDER BY l.ASSET_NAME, l.ASSET_NO";
@@ -148,7 +148,7 @@ public class LoanRepository : ILoanRepository
             FROM Loan l
             LEFT JOIN Image i ON l.loan_id = i.LoanID AND i.Deleted = 0
             WHERE l.SALE_ID = @saleId 
-                AND l.LOAN_STATUS_ID != 0
+                AND l.LOAN_STATUS_ID = 3  -- Published status, matching original implementation
                 AND (l.ASSET_NAME LIKE @searchPattern 
                      OR l.ASSET_NO LIKE @searchPattern
                      OR l.ASSET_NAME2 LIKE @searchPattern

@@ -57,6 +57,8 @@ public class DocumentSummaryModel
     public int Id { get; set; }
     public string OriginalName { get; set; } = string.Empty;
     public string? DocumentType { get; set; }
+    public int? ImageDocumentTypeID { get; set; }
+    public string? ClassifiedDocumentType { get; set; }
     public int? PageCount { get; set; }
     public long Length { get; set; }
     public DateTime DateCreated { get; set; }
@@ -95,4 +97,29 @@ public class RedactDocumentRequest
 {
     public List<RedactionArea> Areas { get; set; } = new();
     public bool PermanentRedaction { get; set; } = true;
+}
+
+public class DocumentTypeModel
+{
+    public int Id { get; set; }
+    public string Name { get; set; } = string.Empty;
+    public string? Code { get; set; }
+    public DateTime DateCreated { get; set; }
+}
+
+public class ImageOfferingActionModel
+{
+    public int Id { get; set; }
+    public int OfferingId { get; set; }
+    public int? DocTypeId { get; set; }
+    public string? DocTypeName { get; set; }
+    public int ImageActionTypeId { get; set; }
+    public string ImageActionType { get; set; } = string.Empty;
+    public string ActionName { get; set; } = string.Empty;
+    public string? ActionNote { get; set; }
+}
+
+public class UpdateDocumentClassificationRequest
+{
+    public int DocTypeId { get; set; }
 }

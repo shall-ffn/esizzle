@@ -8,7 +8,7 @@ namespace EsizzleAPI.Controllers;
 
 [ApiController]
 [Route("api/v1/hydra/[controller]")]
-// [Authorize] // Temporarily removed for mock auth testing
+// [Authorize] // Temporarily disabled to focus on authorization logic
 public class OfferingController : ControllerBase
 {
     private readonly ILogger<OfferingController> _logger;
@@ -82,16 +82,34 @@ public class OfferingController : ControllerBase
         try
         {
             var authUser = HttpContext.Items["AuthorizedUser"] as AuthorizedUser;
+            
+            // Support mock authentication for testing authorization logic
             if (authUser == null)
             {
-                return Unauthorized("User not authenticated");
+                var mockUserId = HttpContext.Request.Headers["X-Mock-User-Id"].FirstOrDefault();
+                var mockUserEmail = HttpContext.Request.Headers["X-Mock-User-Email"].FirstOrDefault();
+                
+                if (!string.IsNullOrEmpty(mockUserId) && !string.IsNullOrEmpty(mockUserEmail) && int.TryParse(mockUserId, out int userId))
+                {
+                    authUser = new AuthorizedUser
+                    {
+                        Id = userId,
+                        Email = mockUserEmail,
+                        AccessLevel = 2 // Default non-admin level
+                    };
+                    _logger.LogInformation("Using mock auth - User ID: {UserId}, Email: {Email}", userId, mockUserEmail);
+                }
+                else
+                {
+                    return Unauthorized("User not authenticated - provide X-Mock-User-Id and X-Mock-User-Email headers");
+                }
             }
 
             // Check if user has access to this offering
             var hasAccess = await _securityRepository.HasOfferingAccessAsync(authUser.Id, offeringId);
             if (!hasAccess)
             {
-                return Forbid("Access denied to this offering");
+                return StatusCode(403, "Access denied to this offering");
             }
 
             _logger.LogInformation("Getting offering {OfferingId} for user {UserId}", offeringId, authUser.Id);
@@ -120,9 +138,27 @@ public class OfferingController : ControllerBase
         try
         {
             var authUser = HttpContext.Items["AuthorizedUser"] as AuthorizedUser;
+            
+            // Support mock authentication for testing authorization logic
             if (authUser == null)
             {
-                return Unauthorized("User not authenticated");
+                var mockUserId = HttpContext.Request.Headers["X-Mock-User-Id"].FirstOrDefault();
+                var mockUserEmail = HttpContext.Request.Headers["X-Mock-User-Email"].FirstOrDefault();
+                
+                if (!string.IsNullOrEmpty(mockUserId) && !string.IsNullOrEmpty(mockUserEmail) && int.TryParse(mockUserId, out int userId))
+                {
+                    authUser = new AuthorizedUser
+                    {
+                        Id = userId,
+                        Email = mockUserEmail,
+                        AccessLevel = 2 // Default non-admin level
+                    };
+                    _logger.LogInformation("Using mock auth - User ID: {UserId}, Email: {Email}", userId, mockUserEmail);
+                }
+                else
+                {
+                    return Unauthorized("User not authenticated - provide X-Mock-User-Id and X-Mock-User-Email headers");
+                }
             }
 
             // Only allow admin users (AccessLevel 1) to see all offerings

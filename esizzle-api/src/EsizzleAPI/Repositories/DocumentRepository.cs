@@ -17,23 +17,29 @@ public class DocumentRepository : IDocumentRepository
         using var connection = _dbConnectionFactory.CreateConnection();
         const string sql = @"
             SELECT 
-                ID as Id,
-                OriginalName,
-                DocumentType,
-                PageCount,
-                Length,
-                DateCreated,
-                DateUpdated,
-                ImageStatusTypeID as ImageStatusTypeId,
-                Corrupted,
-                IsRedacted,
-                Comments,
-                LoanID as LoanId,
-                AssetNumber
-            FROM Image 
-            WHERE LoanID = @loanId 
-                AND Deleted = 0
-            ORDER BY ProcessOrder, DateCreated";
+                i.ID as Id,
+                i.OriginalName,
+                COALESCE(dt.Name, i.DocumentType, 'Unclassified') as DocumentType,
+                i.ImageDocumentTypeID,
+                dt.Name as ClassifiedDocumentType,
+                i.PageCount,
+                i.Length,
+                i.DateCreated,
+                i.DateUpdated,
+                i.ImageStatusTypeID as ImageStatusTypeId,
+                i.Corrupted,
+                i.IsRedacted,
+                i.Comments,
+                i.LoanID as LoanId,
+                i.AssetNumber
+            FROM Image i
+            LEFT JOIN ImageDocTypeMasterList dt ON i.ImageDocumentTypeID = dt.ID
+            WHERE i.LoanID = @loanId AND i.Deleted = 0
+            ORDER BY 
+                CASE WHEN dt.Name IS NULL THEN 1 ELSE 0 END,
+                dt.Name,
+                i.OriginalName,
+                i.DateCreated";
 
         return await connection.QueryAsync<DocumentSummaryModel>(sql, new { loanId });
     }
@@ -161,13 +167,60 @@ public class DocumentRepository : IDocumentRepository
     {
         using var connection = _dbConnectionFactory.CreateConnection();
         const string sql = @"
-            SELECT DISTINCT DocumentType 
-            FROM Image 
-            WHERE DocumentType IS NOT NULL 
-                AND DocumentType != ''
-                AND Deleted = 0
-            ORDER BY DocumentType";
+            SELECT DISTINCT Name
+            FROM ImageDocTypeMasterList 
+            WHERE Name IS NOT NULL 
+                AND Name != ''
+            ORDER BY Name";
 
         return await connection.QueryAsync<string>(sql);
+    }
+
+    public async Task<IEnumerable<DocumentTypeModel>> GetDocumentTypesByOfferingAsync(int offeringId)
+    {
+        using var connection = _dbConnectionFactory.CreateConnection();
+        const string sql = @"
+            SELECT DISTINCT dt.ID as Id, dt.Name, dt.Code, dt.DateCreated
+            FROM Offerings o
+            JOIN ImageDocTypeMasterList dt ON o.IndexCode = dt.Code
+            WHERE o.OfferingID = @offeringId
+            ORDER BY dt.Name";
+
+        return await connection.QueryAsync<DocumentTypeModel>(sql, new { offeringId });
+    }
+
+    public async Task<bool> UpdateDocumentClassificationAsync(int documentId, int docTypeId, int userId)
+    {
+        using var connection = _dbConnectionFactory.CreateConnection();
+        const string sql = @"
+            UPDATE Image 
+            SET ImageDocumentTypeID = @docTypeId,
+                DateUpdated = UTC_TIMESTAMP()
+            WHERE ID = @documentId AND Deleted = 0";
+
+        var rowsAffected = await connection.ExecuteAsync(sql, new { documentId, docTypeId });
+        return rowsAffected > 0;
+    }
+
+    public async Task<IEnumerable<ImageOfferingActionModel>> GetOfferingImageActionsAsync(int offeringId)
+    {
+        using var connection = _dbConnectionFactory.CreateConnection();
+        const string sql = @"
+            SELECT 
+                oa.ID as Id,
+                oa.OfferingID as OfferingId,
+                oa.DocTypeID as DocTypeId,
+                dt.Name as DocTypeName,
+                oa.ImageActionTypeID as ImageActionTypeId,
+                ia.Name as ImageActionType,
+                oa.ActionName,
+                oa.ActionNote
+            FROM ImageOfferingActions oa
+            JOIN ImageActionTypes ia ON oa.ImageActionTypeID = ia.ID
+            LEFT JOIN ImageDocTypeMasterList dt ON oa.DocTypeID = dt.ID
+            WHERE oa.OfferingID = @offeringId
+            ORDER BY dt.Name, oa.ActionName";
+
+        return await connection.QueryAsync<ImageOfferingActionModel>(sql, new { offeringId });
     }
 }

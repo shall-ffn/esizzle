@@ -26,7 +26,9 @@ public class SaleRepository : ISaleRepository
                 s.imaging_folder as ImagingFolder,
                 COUNT(DISTINCT l.loan_id) as LoansCount
             FROM Sales s
-            INNER JOIN Offerings o ON s.ClientID = o.ClientID
+            INNER JOIN Auction a ON s.sale_id = a.Loanmaster_Sale_ID
+            INNER JOIN OfferingAuctions oa ON a.AuctionID = oa.AuctionID
+            INNER JOIN Offerings o ON oa.OfferingID = o.OfferingID
             LEFT JOIN Loan l ON s.sale_id = l.SALE_ID AND l.LOAN_STATUS_ID != 0
             WHERE o.OfferingID = @offeringId
             GROUP BY s.sale_id, s.sale_desc, s.sale_num, s.display_order, 
@@ -99,7 +101,9 @@ public class SaleRepository : ISaleRepository
         const string sql = @"
             SELECT COUNT(1) 
             FROM Sales s
-            INNER JOIN Offerings o ON s.ClientID = o.ClientID
+            INNER JOIN Auction a ON s.sale_id = a.Loanmaster_Sale_ID
+            INNER JOIN OfferingAuctions oa ON a.AuctionID = oa.AuctionID
+            INNER JOIN Offerings o ON oa.OfferingID = o.OfferingID
             WHERE s.sale_id = @saleId AND o.OfferingID = @offeringId";
 
         var count = await connection.QueryFirstAsync<int>(sql, new { saleId, offeringId });

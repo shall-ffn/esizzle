@@ -126,6 +126,117 @@ public async Task<IActionResult> RedactDocument(int id, [FromBody] RedactRequest
 public async Task<IActionResult> UpdateDocumentType(int id, [FromBody] string documentType)
 ```
 
+## Phase 1.5: Document Classification System (CRITICAL FIX - Week 3.5)
+
+### Issue Analysis
+**Current Problem:** Images loading as "Unclassified" because the API only reads the legacy `Image.DocumentType` varchar field instead of using the proper classification system from the original WinForms app.
+
+### Root Cause & Solution
+The original Hydra.DueDiligence.App uses a sophisticated document classification system that we must preserve:
+
+**Database Relationships:**
+```sql
+-- Proper Classification Chain
+Offerings.IndexCode → ImageDocTypeMasterList.Code
+Image.ImageDocumentTypeID → ImageDocTypeMasterList.ID
+ImageOfferingActions.DocTypeID → ImageDocTypeMasterList.ID
+
+-- Legacy fallback
+Image.DocumentType (varchar - less reliable)
+```
+
+### 1.5.1 Backend Repository Fixes
+
+**Updated DocumentRepository Query:**
+```csharp
+public async Task<IEnumerable<DocumentSummaryModel>> GetByLoanIdAsync(int loanId)
+{
+    const string sql = @"
+        SELECT 
+            i.ID as Id,
+            i.OriginalName,
+            COALESCE(dt.Name, i.DocumentType, 'Unclassified') as DocumentType,
+            i.ImageDocumentTypeID,
+            dt.Name as ClassifiedDocumentType,
+            i.PageCount,
+            i.Length,
+            i.DateCreated,
+            i.DateUpdated,
+            i.ImageStatusTypeID as ImageStatusTypeId,
+            i.Corrupted,
+            i.IsRedacted,
+            i.Comments,
+            i.LoanID as LoanId,
+            i.AssetNumber
+        FROM Image i
+        LEFT JOIN ImageDocTypeMasterList dt ON i.ImageDocumentTypeID = dt.ID
+        WHERE i.LoanID = @loanId AND i.Deleted = 0
+        ORDER BY 
+            CASE WHEN dt.Name IS NULL THEN 1 ELSE 0 END,
+            dt.Name,
+            i.OriginalName,
+            i.DateCreated";
+}
+```
+
+### 1.5.2 New API Endpoints
+
+**OfferingController Extensions:**
+```csharp
+[HttpGet("{id}/document-types")]
+public async Task<IActionResult> GetOfferingDocumentTypes(int id)
+
+[HttpGet("{id}/image-actions")] 
+public async Task<IActionResult> GetOfferingImageActions(int id)
+```
+
+**DocumentController Extensions:**
+```csharp
+[HttpPut("{documentId}/classification/{docTypeId}")]
+public async Task<IActionResult> UpdateDocumentClassification(int documentId, int docTypeId)
+
+[HttpGet("types/by-offering/{offeringId}")]
+public async Task<IActionResult> GetDocumentTypesByOffering(int offeringId)
+```
+
+### 1.5.3 Database Models
+
+**New Models:**
+```csharp
+public class DocumentTypeModel
+{
+    public int Id { get; set; }
+    public string Name { get; set; }
+    public string Code { get; set; }
+    public DateTime DateCreated { get; set; }
+}
+
+public class ImageOfferingActionModel  
+{
+    public int Id { get; set; }
+    public int OfferingId { get; set; }
+    public int? DocTypeId { get; set; }
+    public string DocTypeName { get; set; }
+    public int ImageActionTypeId { get; set; }
+    public string ActionName { get; set; }
+    public string ActionNote { get; set; }
+}
+```
+
+### 1.5.4 Critical Implementation Steps
+
+1. **Fix DocumentRepository.GetByLoanIdAsync()** - Use proper LEFT JOIN with ImageDocTypeMasterList
+2. **Add GetDocumentTypesByOfferingAsync()** - Match original offering-specific document types
+3. **Update DocumentController** - Add classification endpoints  
+4. **Test with real loan data** - Verify classifications appear correctly
+5. **Frontend updates** - Display proper document type names
+
+**Success Criteria:**
+- Documents show proper classification names from ImageDocTypeMasterList
+- Maintains original WinForms workflow compatibility
+- Zero data loss during classification updates
+- Sub-1 second classification response times
+
 ## Phase 2: Vue.js Frontend Development (Weeks 4-8)
 
 ### 2.1 Project Setup & Architecture

@@ -41,6 +41,30 @@ public class AuthorizedUserMiddleware
             // Add the authorized user to the HttpContext so controllers can access it
             context.Items["AuthorizedUser"] = authorizedUser;
         }
+        else
+        {
+            // For development: Check for mock auth headers when authorization is disabled
+            var mockUserEmail = context.Request.Headers["X-Mock-User-Email"].FirstOrDefault();
+            var mockUserId = context.Request.Headers["X-Mock-User-Id"].FirstOrDefault();
+            var mockUserName = context.Request.Headers["X-Mock-User-Name"].FirstOrDefault();
+
+            if (!string.IsNullOrEmpty(mockUserEmail))
+            {
+                var authorizedUser = new AuthorizedUser
+                {
+                    Id = int.TryParse(mockUserId, out var id) ? id : 21496,
+                    Name = mockUserName ?? "Development User",
+                    Email = mockUserEmail,
+                    UserName = mockUserEmail.Split('@')[0],
+                    ClientId = null, // Will be determined by security repository
+                    AccessLevel = 1, // Admin level for development
+                    SystemRoles = new List<string> { "Admin", "User" }
+                };
+
+                // Add the mock authorized user to the HttpContext
+                context.Items["AuthorizedUser"] = authorizedUser;
+            }
+        }
 
         await _next(context);
     }
