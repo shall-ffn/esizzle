@@ -1,15 +1,18 @@
 using Dapper;
 using EsizzleAPI.Models;
+using EsizzleAPI.Services;
 
 namespace EsizzleAPI.Repositories;
 
 public class DocumentRepository : IDocumentRepository
 {
     private readonly IDbConnectionFactory _dbConnectionFactory;
+    private readonly IPdfTokenService _pdfTokenService;
 
-    public DocumentRepository(IDbConnectionFactory dbConnectionFactory)
+    public DocumentRepository(IDbConnectionFactory dbConnectionFactory, IPdfTokenService pdfTokenService)
     {
         _dbConnectionFactory = dbConnectionFactory;
+        _pdfTokenService = pdfTokenService;
     }
 
     public async Task<IEnumerable<DocumentSummaryModel>> GetByLoanIdAsync(int loanId)
@@ -20,7 +23,7 @@ public class DocumentRepository : IDocumentRepository
                 i.ID as Id,
                 i.OriginalName,
                 COALESCE(dt.Name, i.DocumentType, 'Unclassified') as DocumentType,
-                i.ImageDocumentTypeID,
+                i.DocTypeManualID as ImageDocumentTypeID,
                 dt.Name as ClassifiedDocumentType,
                 i.PageCount,
                 i.Length,
@@ -33,7 +36,7 @@ public class DocumentRepository : IDocumentRepository
                 i.LoanID as LoanId,
                 i.AssetNumber
             FROM Image i
-            LEFT JOIN ImageDocTypeMasterList dt ON i.ImageDocumentTypeID = dt.ID
+            LEFT JOIN ImageDocTypeMasterList dt ON i.DocTypeManualID = dt.ID
             WHERE i.LoanID = @loanId AND i.Deleted = 0
             ORDER BY 
                 CASE WHEN dt.Name IS NULL THEN 1 ELSE 0 END,
@@ -112,16 +115,18 @@ public class DocumentRepository : IDocumentRepository
         return count > 0;
     }
 
-    public async Task<string> GenerateDocumentUrlAsync(int documentId)
+    public async Task<string> GenerateDocumentUrlAsync(int documentId, int userId)
     {
         // Get document path from database
         var document = await GetByIdAsync(documentId);
         if (document == null)
             return string.Empty;
 
-        // For local development, we'll return a mock URL
-        // In production, this would generate a presigned S3 URL
-        return $"https://localhost:5001/api/v1/documents/{documentId}/content";
+        // Generate a time-limited access token for PDF content (15 minutes)
+        var accessToken = _pdfTokenService.GeneratePdfAccessToken(documentId, userId, TimeSpan.FromMinutes(15));
+        
+        // Return signed URL with embedded access token
+        return $"http://localhost:5000/api/v1/hydra/document/{documentId}/content?token={accessToken}";
     }
 
     public async Task<bool> UpdateDocumentTypeAsync(int documentId, string documentType, int userId)
@@ -194,7 +199,7 @@ public class DocumentRepository : IDocumentRepository
         using var connection = _dbConnectionFactory.CreateConnection();
         const string sql = @"
             UPDATE Image 
-            SET ImageDocumentTypeID = @docTypeId,
+            SET DocTypeManualID = @docTypeId,
                 DateUpdated = UTC_TIMESTAMP()
             WHERE ID = @documentId AND Deleted = 0";
 

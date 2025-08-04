@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.Mvc;
 using EsizzleAPI.Middleware;
 using EsizzleAPI.Models;
 using EsizzleAPI.Repositories;
+using EsizzleAPI.Services;
 
 namespace EsizzleAPI.Controllers;
 
@@ -14,15 +15,21 @@ public class DocumentController : ControllerBase
     private readonly ILogger<DocumentController> _logger;
     private readonly IDocumentRepository _documentRepository;
     private readonly ISecurityRepository _securityRepository;
+    private readonly IS3DocumentService _s3DocumentService;
+    private readonly IPdfTokenService _pdfTokenService;
 
     public DocumentController(
         ILogger<DocumentController> logger,
         IDocumentRepository documentRepository,
-        ISecurityRepository securityRepository)
+        ISecurityRepository securityRepository,
+        IS3DocumentService s3DocumentService,
+        IPdfTokenService pdfTokenService)
     {
         _logger = logger;
         _documentRepository = documentRepository;
         _securityRepository = securityRepository;
+        _s3DocumentService = s3DocumentService;
+        _pdfTokenService = pdfTokenService;
     }
 
     /// <summary>
@@ -174,7 +181,7 @@ public class DocumentController : ControllerBase
 
             _logger.LogInformation("Generating URL for document {DocumentId} for user {UserId}", documentId, authUser.Id);
 
-            var url = await _documentRepository.GenerateDocumentUrlAsync(documentId);
+            var url = await _documentRepository.GenerateDocumentUrlAsync(documentId, authUser.Id);
             if (string.IsNullOrEmpty(url))
             {
                 return NotFound($"Document {documentId} not found or cannot generate URL");
@@ -194,6 +201,112 @@ public class DocumentController : ControllerBase
             _logger.LogError(ex, "Error generating URL for document {DocumentId}", documentId);
             return StatusCode(500, "An error occurred while generating document URL");
         }
+    }
+
+    /// <summary>
+    /// Serve the actual PDF content for a document
+    /// Uses signed access tokens for authentication instead of traditional headers
+    /// </summary>
+    [HttpGet("{documentId:int}/content")]
+    public async Task<IActionResult> GetDocumentContent(int documentId)
+    {
+        try
+        {
+            // Validate PDF access token from query string
+            var token = HttpContext.Request.Query["token"].FirstOrDefault();
+            
+            if (string.IsNullOrEmpty(token))
+            {
+                _logger.LogWarning("PDF content request missing access token for document {DocumentId}", documentId);
+                return Unauthorized("Access token required for PDF content");
+            }
+            
+            // Validate the PDF access token
+            if (!_pdfTokenService.ValidatePdfAccessToken(token, documentId, out int userId))
+            {
+                _logger.LogWarning("Invalid or expired PDF access token for document {DocumentId}", documentId);
+                return Unauthorized("Invalid or expired access token");
+            }
+            
+            // Token is valid - check if user still has access to this document
+            var hasAccess = await _securityRepository.HasDocumentAccessAsync(userId, documentId);
+            if (!hasAccess)
+            {
+                _logger.LogWarning("User {UserId} no longer has access to document {DocumentId}", userId, documentId);
+                return StatusCode(403, "Access denied to this document");
+            }
+
+            _logger.LogInformation("Serving content for document {DocumentId} for user {UserId} via signed token", documentId, userId);
+
+            // Get document details to retrieve S3 path and BucketPrefix
+            var document = await _documentRepository.GetByIdAsync(documentId);
+            if (document == null)
+            {
+                return NotFound($"Document {documentId} not found");
+            }
+
+            // Check if document has a valid path in S3
+            if (string.IsNullOrEmpty(document.Path))
+            {
+                return NotFound($"Document {documentId} has no file path");
+            }
+
+            // Strategy 1: Try legacy-compatible local caching first (preferred for performance)
+            var localPath = await _s3DocumentService.ResolveDocumentPathAsync(document, useCache: true);
+            if (!string.IsNullOrEmpty(localPath) && System.IO.File.Exists(localPath))
+            {
+                _logger.LogDebug("Serving document {DocumentId} from local cache: {LocalPath}", documentId, localPath);
+                
+                // Determine content type from extension or metadata
+                var contentType = GetContentTypeFromExtension(document.OriginalExt) ?? "application/pdf";
+                
+                // Return the cached file
+                var fileStream = new FileStream(localPath, FileMode.Open, FileAccess.Read);
+                return File(fileStream, contentType, document.OriginalName);
+            }
+
+            // Strategy 2: Fallback to direct S3 streaming
+            _logger.LogDebug("Local cache miss for document {DocumentId}, streaming from S3", documentId);
+            
+            // Determine bucket from BucketPrefix or use default
+            var bucketName = !string.IsNullOrEmpty(document.BucketPrefix) ? document.BucketPrefix : "default-bucket";
+            var s3Key = document.Path.StartsWith("IOriginal/Images/") ? document.Path : $"IOriginal/Images/{document.Path}";
+            
+            // Stream document content directly from S3
+            var documentStream = await _s3DocumentService.GetDocumentStreamAsync(bucketName, s3Key);
+            if (documentStream == null)
+            {
+                return NotFound($"Document content not found in storage: {bucketName}/{s3Key}");
+            }
+
+            // Get document metadata to determine content type
+            var metadata = await _s3DocumentService.GetDocumentMetadataAsync(bucketName, s3Key);
+            var streamContentType = metadata?.ContentType ?? GetContentTypeFromExtension(document.OriginalExt) ?? "application/pdf";
+
+            // Return the document stream
+            return File(documentStream, streamContentType, document.OriginalName);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "Error serving content for document {DocumentId}", documentId);
+            return StatusCode(500, "An error occurred while serving document content");
+        }
+    }
+
+    /// <summary>
+    /// Helper method to determine content type from file extension
+    /// </summary>
+    private string? GetContentTypeFromExtension(string extension)
+    {
+        return extension?.ToLowerInvariant() switch
+        {
+            ".pdf" => "application/pdf",
+            ".tiff" or ".tif" => "image/tiff",
+            ".jpg" or ".jpeg" => "image/jpeg",
+            ".png" => "image/png",
+            ".gif" => "image/gif",
+            _ => null
+        };
     }
 
     /// <summary>

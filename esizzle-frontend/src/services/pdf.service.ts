@@ -21,8 +21,15 @@ export class PDFService {
   private loadingTasks: Map<string, Promise<PDFDocumentProxy>> = new Map()
 
   constructor() {
-    // Configure PDF.js worker
-    pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+    // Configure PDF.js worker - use different paths for dev vs production
+    if (import.meta.env.DEV) {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = new URL(
+        'pdfjs-dist/build/pdf.worker.min.js',
+        import.meta.url
+      ).toString()
+    } else {
+      pdfjsLib.GlobalWorkerOptions.workerSrc = '/pdf.worker.min.js'
+    }
   }
 
   static getInstance(): PDFService {

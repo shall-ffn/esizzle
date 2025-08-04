@@ -7,7 +7,7 @@ public interface IDocumentRepository
     Task<IEnumerable<DocumentSummaryModel>> GetByLoanIdAsync(int loanId);
     Task<DocumentModel?> GetByIdAsync(int documentId);
     Task<bool> BelongsToLoanAsync(int documentId, int loanId);
-    Task<string> GenerateDocumentUrlAsync(int documentId);
+    Task<string> GenerateDocumentUrlAsync(int documentId, int userId);
     Task<bool> UpdateDocumentTypeAsync(int documentId, string documentType, int userId);
     Task<bool> MarkAsRedactedAsync(int documentId, int userId);
     Task<bool> UpdateProcessingStatusAsync(int documentId, int statusId);

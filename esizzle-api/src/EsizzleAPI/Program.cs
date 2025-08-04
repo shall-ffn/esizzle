@@ -1,5 +1,7 @@
 using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
+using Amazon.S3;
+using Amazon.Extensions.NETCore.Setup;
 using EsizzleAPI.Middleware;
 using EsizzleAPI.Repositories;
 using EsizzleAPI.Services;
@@ -41,6 +43,13 @@ builder.Services.AddScoped<ISecurityRepository, SecurityRepository>();
 // Register ArrayClient service for external authentication
 builder.Services.AddHttpClient<IArrayClient, ArrayClient>();
 builder.Services.AddScoped<IArrayClient, ArrayClient>();
+
+// Register AWS services
+builder.Services.AddAWSService<Amazon.S3.IAmazonS3>();
+builder.Services.AddScoped<IS3DocumentService, S3DocumentService>();
+
+// Register PDF token service for secure PDF access
+builder.Services.AddScoped<IPdfTokenService, PdfTokenService>();
 
 // Configure JWT Bearer authentication
 string secretKeyStr = Environment.GetEnvironmentVariable("TokenSecretKey") ?? "4R27CP2zd//HL2TXVbIhI+304UM2IMhetUXhJRcbYgg=";
