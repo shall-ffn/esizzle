@@ -26,7 +26,9 @@ export default defineConfig({
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url))
-    }
+    },
+    // Ensure only one copy of PDF.js is bundled (prevents "Cannot read from private field" errors)
+    dedupe: ['pdfjs-dist']
   },
   server: {
     port: 5173,

@@ -68,6 +68,47 @@ public interface IS3DocumentService
     /// <param name="originalExtension">Original file extension</param>
     /// <returns>Local cache file path</returns>
     string GetLocalCachePath(int documentId, string originalExtension);
+
+    /// <summary>
+    /// Legacy-compatible: Resolve document using status-based path logic
+    /// Mimics legacy RefreshBytes() functionality
+    /// </summary>
+    /// <param name="document">Document model with status information</param>
+    /// <param name="useCache">Whether to use local caching</param>
+    /// <param name="preferredStatus">Preferred status to try first (null = use document's current status)</param>
+    /// <returns>Local file path to document, or null if not accessible</returns>
+    Task<string?> ResolveDocumentWithStatusAsync(DocumentModel document, bool useCache = true, ImageStatusTypeEnum? preferredStatus = null);
+
+    /// <summary>
+    /// Generate presigned URL using document's status-based path resolution
+    /// </summary>
+    /// <param name="document">Document model with status and bucket information</param>
+    /// <param name="expirationMinutes">URL expiration time in minutes</param>
+    /// <param name="preferredStatus">Preferred status to try first (null = use document's current status)</param>
+    /// <returns>Presigned URL for document access</returns>
+    Task<string?> GenerateDocumentPresignedUrlAsync(DocumentModel document, int expirationMinutes = 60, ImageStatusTypeEnum? preferredStatus = null);
+
+    /// <summary>
+    /// Stream document using status-based path resolution with fallback logic
+    /// </summary>
+    /// <param name="document">Document model with status and bucket information</param>
+    /// <param name="preferredStatus">Preferred status to try first (null = use document's current status)</param>
+    /// <returns>Stream of document content, or null if not found</returns>
+    Task<Stream?> GetDocumentStreamWithStatusAsync(DocumentModel document, ImageStatusTypeEnum? preferredStatus = null);
+
+    /// <summary>
+    /// Check document existence across multiple status-based paths
+    /// </summary>
+    /// <param name="document">Document model with status and bucket information</param>
+    /// <returns>Dictionary of status types and their existence status</returns>
+    Task<Dictionary<ImageStatusTypeEnum, bool>> CheckDocumentExistenceAsync(DocumentModel document);
+
+    /// <summary>
+    /// Get environment-aware bucket name from BucketPrefix
+    /// </summary>
+    /// <param name="bucketPrefix">Bucket prefix from document</param>
+    /// <returns>Full bucket name with environment path if applicable</returns>
+    string GetEnvironmentBucketName(string? bucketPrefix);
 }
 
 public class S3DocumentMetadata

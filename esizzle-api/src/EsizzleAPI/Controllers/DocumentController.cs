@@ -181,17 +181,29 @@ public class DocumentController : ControllerBase
 
             _logger.LogInformation("Generating URL for document {DocumentId} for user {UserId}", documentId, authUser.Id);
 
-            var url = await _documentRepository.GenerateDocumentUrlAsync(documentId, authUser.Id);
-            if (string.IsNullOrEmpty(url))
+            // Get document details for S3 path resolution
+            var document = await _documentRepository.GetByIdAsync(documentId);
+            if (document == null)
             {
-                return NotFound($"Document {documentId} not found or cannot generate URL");
+                return NotFound($"Document {documentId} not found");
             }
+
+            // Generate PDF access token for secure content access
+            var pdfToken = _pdfTokenService.GeneratePdfAccessToken(documentId, authUser.Id, TimeSpan.FromHours(1));
+            
+            _logger.LogInformation("Generated PDF token for document {DocumentId}, user {UserId}. Token: '{Token}' (length: {Length})", 
+                documentId, authUser.Id, pdfToken, pdfToken.Length);
+            
+            // Return URL pointing to our API content endpoint (not direct S3)
+            var baseUrl = $"{Request.Scheme}://{Request.Host}";
+            var encodedToken = Uri.EscapeDataString(pdfToken);
+            var contentUrl = $"{baseUrl}/api/v1/hydra/document/{documentId}/content?token={encodedToken}";
 
             var response = new DocumentUrlResponse
             {
-                Url = url,
-                ExpiresAt = DateTime.UtcNow.AddHours(1), // URL expires in 1 hour
-                ContentType = "application/pdf"
+                Url = contentUrl,
+                ExpiresAt = DateTime.UtcNow.AddHours(1), // URL expires in 1 hour  
+                ContentType = GetContentTypeFromExtension(document.OriginalExt) ?? "application/pdf"
             };
 
             return Ok(response);
@@ -224,7 +236,8 @@ public class DocumentController : ControllerBase
             // Validate the PDF access token
             if (!_pdfTokenService.ValidatePdfAccessToken(token, documentId, out int userId))
             {
-                _logger.LogWarning("Invalid or expired PDF access token for document {DocumentId}", documentId);
+                _logger.LogError("Token validation failed for document {DocumentId}. Token: '{Token}' (length: {Length})", 
+                    documentId, token, token.Length);
                 return Unauthorized("Invalid or expired access token");
             }
             
@@ -251,40 +264,93 @@ public class DocumentController : ControllerBase
                 return NotFound($"Document {documentId} has no file path");
             }
 
-            // Strategy 1: Try legacy-compatible local caching first (preferred for performance)
-            var localPath = await _s3DocumentService.ResolveDocumentPathAsync(document, useCache: true);
+            // Strategy 1: Try legacy-compatible status-based resolution with local caching (preferred for performance)
+            var localPath = await _s3DocumentService.ResolveDocumentWithStatusAsync(document, useCache: true);
             if (!string.IsNullOrEmpty(localPath) && System.IO.File.Exists(localPath))
             {
-                _logger.LogDebug("Serving document {DocumentId} from local cache: {LocalPath}", documentId, localPath);
+                _logger.LogInformation("Serving document {DocumentId} from local cache using status-based resolution: {LocalPath}", documentId, localPath);
                 
-                // Determine content type from extension or metadata
-                var contentType = GetContentTypeFromExtension(document.OriginalExt) ?? "application/pdf";
+                // For web viewing, always use PDF content type since we're serving processed PDFs
+                var contentType = "application/pdf";
+                var pdfFileName = Path.GetFileNameWithoutExtension(document.OriginalName) + ".pdf";
+                
+                // Set proper headers for PDF viewing
+                Response.Headers["Content-Disposition"] = $"inline; filename=\"{pdfFileName}\"";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["X-Content-Type-Options"] = "nosniff";
+                Response.Headers["Accept-Ranges"] = "bytes";
                 
                 // Return the cached file
                 var fileStream = new FileStream(localPath, FileMode.Open, FileAccess.Read);
-                return File(fileStream, contentType, document.OriginalName);
+                return File(fileStream, contentType, pdfFileName);
             }
 
-            // Strategy 2: Fallback to direct S3 streaming
-            _logger.LogDebug("Local cache miss for document {DocumentId}, streaming from S3", documentId);
+            // Strategy 2: Try direct S3 streaming with status-based path resolution and fallback
+            _logger.LogDebug("Local cache miss for document {DocumentId}, trying S3 streaming with status-based resolution", documentId);
             
-            // Determine bucket from BucketPrefix or use default
-            var bucketName = !string.IsNullOrEmpty(document.BucketPrefix) ? document.BucketPrefix : "default-bucket";
+            var documentStream = await _s3DocumentService.GetDocumentStreamWithStatusAsync(document);
+            if (documentStream != null)
+            {
+                _logger.LogInformation("Serving document {DocumentId} via S3 streaming with status-based resolution", documentId);
+                
+                _logger.LogInformation("Document {DocumentId} stream retrieved successfully", documentId);
+                
+                // For web viewing, always use PDF content type since we're serving processed PDFs
+                var streamContentType = "application/pdf";
+
+                // Return the document stream with PDF-friendly filename and proper headers
+                var pdfFileName = Path.GetFileNameWithoutExtension(document.OriginalName) + ".pdf";
+                
+                // Set proper headers for PDF viewing
+                Response.Headers["Content-Disposition"] = $"inline; filename=\"{pdfFileName}\"";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["X-Content-Type-Options"] = "nosniff";
+                Response.Headers["Accept-Ranges"] = "bytes";
+                
+                // Set Content-Length if stream supports it
+                if (documentStream.CanSeek)
+                {
+                    Response.Headers["Content-Length"] = documentStream.Length.ToString();
+                }
+                
+                return File(documentStream, streamContentType, pdfFileName);
+            }
+
+            // Strategy 3: Legacy fallback using original path logic (for backwards compatibility)
+            _logger.LogWarning("Status-based resolution failed for document {DocumentId}, trying legacy path fallback", documentId);
+            
+            var bucketName = _s3DocumentService.GetEnvironmentBucketName(document.BucketPrefix);
             var s3Key = document.Path.StartsWith("IOriginal/Images/") ? document.Path : $"IOriginal/Images/{document.Path}";
             
-            // Stream document content directly from S3
-            var documentStream = await _s3DocumentService.GetDocumentStreamAsync(bucketName, s3Key);
-            if (documentStream == null)
+            var legacyStream = await _s3DocumentService.GetDocumentStreamAsync(bucketName, s3Key);
+            if (legacyStream != null)
             {
-                return NotFound($"Document content not found in storage: {bucketName}/{s3Key}");
+                _logger.LogInformation("Serving document {DocumentId} via legacy path fallback: {BucketName}/{S3Key}", documentId, bucketName, s3Key);
+                
+                // For web viewing, always use PDF content type
+                var legacyContentType = "application/pdf";
+                var pdfFileName = Path.GetFileNameWithoutExtension(document.OriginalName) + ".pdf";
+                
+                // Set proper headers for PDF viewing
+                Response.Headers["Content-Disposition"] = $"inline; filename=\"{pdfFileName}\"";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["X-Content-Type-Options"] = "nosniff";
+                Response.Headers["Accept-Ranges"] = "bytes";
+                
+                // Set Content-Length if stream supports it
+                if (legacyStream.CanSeek)
+                {
+                    Response.Headers["Content-Length"] = legacyStream.Length.ToString();
+                }
+                
+                return File(legacyStream, legacyContentType, pdfFileName);
             }
 
-            // Get document metadata to determine content type
-            var metadata = await _s3DocumentService.GetDocumentMetadataAsync(bucketName, s3Key);
-            var streamContentType = metadata?.ContentType ?? GetContentTypeFromExtension(document.OriginalExt) ?? "application/pdf";
-
-            // Return the document stream
-            return File(documentStream, streamContentType, document.OriginalName);
+            // All strategies failed
+            _logger.LogError("All document resolution strategies failed for document {DocumentId} (Status: {Status}, BucketPrefix: {BucketPrefix}, Path: {Path})", 
+                documentId, (ImageStatusTypeEnum)document.ImageStatusTypeId, document.BucketPrefix, document.Path);
+            
+            return NotFound($"Document content not found in storage using any resolution strategy");
         }
         catch (Exception ex)
         {
@@ -540,6 +606,53 @@ public class DocumentController : ControllerBase
         {
             _logger.LogError(ex, "Error getting document types for offering {OfferingId}", offeringId);
             return StatusCode(500, "An error occurred while retrieving document types");
+        }
+    }
+
+    /// <summary>
+    /// Debug endpoint to test PDF content directly (no authentication)
+    /// </summary>
+    [HttpGet("debug/{documentId:int}/pdf")]
+    public async Task<IActionResult> GetDocumentDebug(int documentId)
+    {
+        try
+        {
+            _logger.LogInformation("DEBUG: Getting document {DocumentId} without authentication", documentId);
+
+            var document = await _documentRepository.GetByIdAsync(documentId);
+            if (document == null)
+            {
+                return NotFound($"Document {documentId} not found");
+            }
+
+            _logger.LogInformation("DEBUG: Document {DocumentId} found - Status: {Status}, Extension: {Extension}, Path: {Path}", 
+                documentId, (ImageStatusTypeEnum)document.ImageStatusTypeId, document.OriginalExt, document.Path);
+
+            var documentStream = await _s3DocumentService.GetDocumentStreamWithStatusAsync(document);
+            if (documentStream != null)
+            {
+                _logger.LogInformation("DEBUG: Document {DocumentId} - Successfully got stream from S3", documentId);
+
+                Response.Headers["Content-Disposition"] = "inline";
+                Response.Headers["Cache-Control"] = "no-cache";
+                Response.Headers["X-Content-Type-Options"] = "nosniff";
+                Response.Headers["Accept-Ranges"] = "bytes";
+                
+                // Set Content-Length if stream supports it
+                if (documentStream.CanSeek)
+                {
+                    Response.Headers["Content-Length"] = documentStream.Length.ToString();
+                }
+                
+                return File(documentStream, "application/pdf");
+            }
+
+            return NotFound("Document stream not found");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogError(ex, "DEBUG: Error getting document {DocumentId}", documentId);
+            return StatusCode(500, ex.Message);
         }
     }
 

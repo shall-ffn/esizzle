@@ -1,3 +1,5 @@
+using EsizzleAPI.Services;
+
 namespace EsizzleAPI.Models;
 
 public class DocumentModel
@@ -50,6 +52,74 @@ public class DocumentModel
     public bool OverrideActions { get; set; }
     public string? BucketPrefix { get; set; }
     public int? ExternalId { get; set; }
+
+    /// <summary>
+    /// Gets the S3 path for this document based on its ImageStatusTypeId
+    /// Mimics legacy GetImagePath functionality
+    /// </summary>
+    /// <returns>S3 path for the current document status</returns>
+    public string GetImagePath()
+    {
+        var statusType = (ImageStatusTypeEnum)ImageStatusTypeId;
+        return BaseImagePaths.GetImagePath(Id, statusType, OriginalExt);
+    }
+
+    /// <summary>
+    /// Gets the S3 path for a specific image status
+    /// </summary>
+    /// <param name="statusType">The image status to get path for</param>
+    /// <returns>S3 path for the specified status</returns>
+    public string GetImagePath(ImageStatusTypeEnum statusType)
+    {
+        return BaseImagePaths.GetImagePath(Id, statusType, OriginalExt);
+    }
+
+    /// <summary>
+    /// Gets the original image S3 path
+    /// </summary>
+    /// <returns>Original image S3 path</returns>
+    public string GetOriginalPath()
+    {
+        return BaseImagePaths.GetOriginalPath(Id, OriginalExt);
+    }
+
+    /// <summary>
+    /// Gets the processing image S3 path
+    /// </summary>
+    /// <returns>Processing image S3 path</returns>
+    public string GetProcessingPath()
+    {
+        return BaseImagePaths.GetProcessingPath(Id);
+    }
+
+    /// <summary>
+    /// Gets the production PDF S3 path
+    /// </summary>
+    /// <returns>Production PDF S3 path</returns>
+    public string GetProdPath()
+    {
+        return BaseImagePaths.GetProdPath(Id);
+    }
+
+    /// <summary>
+    /// Gets the redacted original S3 path
+    /// </summary>
+    /// <returns>Redacted original S3 path</returns>
+    public string GetRedactPath()
+    {
+        return BaseImagePaths.GetRedactPath(Id, OriginalExt);
+    }
+
+    /// <summary>
+    /// Gets the best unredacted path for viewing this document
+    /// Mimics legacy GetUnredactedPath functionality
+    /// </summary>
+    /// <returns>Best available S3 path for viewing</returns>
+    public string GetUnredactedPath()
+    {
+        var statusType = (ImageStatusTypeEnum)ImageStatusTypeId;
+        return BaseImagePaths.GetUnredactedPath(Id, statusType, OriginalExt, IsRedacted);
+    }
 }
 
 public class DocumentSummaryModel

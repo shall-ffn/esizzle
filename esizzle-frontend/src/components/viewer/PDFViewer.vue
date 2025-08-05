@@ -13,8 +13,8 @@
 
     <!-- Error state -->
     <div 
-      v-else-if="error" 
-      class="absolute inset-0 flex items-center justify-center text-white"
+      v-if="error" 
+      class="absolute inset-0 flex items-center justify-center text-white z-10"
     >
       <div class="text-center">
         <ExclamationTriangleIcon class="h-16 w-16 mx-auto mb-4 text-red-400" />
@@ -29,21 +29,25 @@
       </div>
     </div>
 
-    <!-- PDF Canvas -->
+    <!-- PDF Canvas - Always present when documentUrl exists -->
     <div 
-      v-else-if="documentUrl"
+      v-if="documentUrl"
       class="h-full w-full overflow-auto"
       ref="containerRef"
+      :class="{ 'opacity-0': loading || error }"
     >
       <div class="flex justify-center p-4">
-        <canvas
-          ref="canvasRef"
-          class="pdf-canvas shadow-lg border border-gray-300 bg-white"
-          :style="{ 
-            transform: `scale(${zoomLevel / 100})`,
-            transformOrigin: 'top center'
-          }"
-        />
+        <div class="pdf-page-container relative" :style="{ 
+          transform: `scale(${zoomLevel / 100})`,
+          transformOrigin: 'top center'
+        }">
+          <canvas
+            ref="canvasRef"
+            class="pdf-canvas shadow-lg border border-gray-300 bg-white block"
+            width="800"
+            height="1000"
+          />
+        </div>
       </div>
     </div>
 
@@ -62,7 +66,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, watch, onMounted, onUnmounted, nextTick } from 'vue'
+import { ref, watch, onMounted, onUnmounted, nextTick, markRaw } from 'vue'
 import type { PDFDocumentProxy } from 'pdfjs-dist'
 import { pdfService } from '@/services/pdf.service'
 import { DocumentIcon, ExclamationTriangleIcon } from '@heroicons/vue/24/outline'
@@ -96,44 +100,91 @@ const containerRef = ref<HTMLDivElement>()
 const loading = ref(false)
 const loadingMessage = ref('')
 const error = ref('')
+// Use markRaw to prevent Vue from making PDF.js objects reactive
 const currentPdf = ref<PDFDocumentProxy | null>(null)
 const isRendering = ref(false)
 
-// Load and render PDF document
+// Load and render PDF document with detailed debugging
 const loadDocument = async () => {
   if (!props.documentUrl) {
+    console.log('PDFViewer: No document URL provided')
     currentPdf.value = null
     return
   }
 
+  console.log('PDFViewer: Starting document load:', props.documentUrl)
   loading.value = true
   loadingMessage.value = 'Loading document...'
   error.value = ''
 
   try {
     // Load PDF document
+    console.log('PDFViewer: Calling pdfService.loadDocument')
     const pdf = await pdfService.loadDocument(props.documentUrl)
-    currentPdf.value = pdf
+    console.log('PDFViewer: PDF loaded successfully, pages:', pdf.numPages)
+    
+    // Debug: Log PDF document info
+    console.log('PDFViewer: PDF document info:', {
+      numPages: pdf.numPages,
+      fingerprint: pdf.fingerprint || 'N/A'
+    })
+    
+    // Use markRaw to prevent Vue reactivity interference with PDF.js objects
+    currentPdf.value = markRaw(pdf)
 
     // Emit loaded event with page count
     emit('loaded', pdf.numPages)
 
+    // Wait for next tick to ensure DOM is updated
+    await nextTick()
+    console.log('PDFViewer: DOM updated, checking canvas availability')
+    
+    // Canvas should be available immediately now since it's not conditional
+    if (!canvasRef.value) {
+      console.error('PDFViewer: Canvas ref still not available after DOM update')
+      throw new Error('Canvas ref not available - template rendering issue')
+    }
+
+    console.log('PDFViewer: Canvas ref is available, proceeding with render')
     // Render the current page
     await renderCurrentPage()
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
+    console.error('PDFViewer: Failed to load PDF:', err)
+    console.error('PDFViewer: Error details:', {
+      message: errorMessage,
+      stack: err instanceof Error ? err.stack : undefined,
+      documentUrl: props.documentUrl
+    })
     error.value = errorMessage
     emit('error', errorMessage)
-    console.error('Failed to load PDF:', err)
   } finally {
     loading.value = false
   }
 }
 
-// Render the current page
+// Render the current page with comprehensive debugging
 const renderCurrentPage = async () => {
-  if (!currentPdf.value || !canvasRef.value || isRendering.value) {
+  console.log('PDFViewer: renderCurrentPage called', {
+    hasPdf: !!currentPdf.value,
+    hasCanvas: !!canvasRef.value,
+    isRendering: isRendering.value,
+    pageNumber: props.pageNumber
+  })
+
+  if (!currentPdf.value) {
+    console.warn('PDFViewer: No PDF document loaded')
+    return
+  }
+
+  if (!canvasRef.value) {
+    console.warn('PDFViewer: Canvas ref not available')
+    return
+  }
+
+  if (isRendering.value) {
+    console.warn('PDFViewer: Already rendering, skipping')
     return
   }
 
@@ -141,25 +192,68 @@ const renderCurrentPage = async () => {
   loadingMessage.value = `Rendering page ${props.pageNumber}...`
 
   try {
+    const canvas = canvasRef.value
+    console.log('PDFViewer: Canvas element details:', {
+      tagName: canvas.tagName,
+      offsetWidth: canvas.offsetWidth,
+      offsetHeight: canvas.offsetHeight,
+      offsetParent: !!canvas.offsetParent,
+      clientWidth: canvas.clientWidth,
+      clientHeight: canvas.clientHeight,
+      style: canvas.style.cssText
+    })
+    
+    // Wait for canvas to be ready before rendering
+    console.log('PDFViewer: Waiting for canvas to be ready')
+    const isReady = await pdfService.waitForCanvasReady(canvas, 5000)
+    if (!isReady) {
+      throw new Error('Canvas not ready for rendering after 5 seconds')
+    }
+    
+    console.log(`PDFViewer: Canvas ready for page ${props.pageNumber}, final dimensions: ${canvas.offsetWidth}x${canvas.offsetHeight}`)
+    
     const scale = props.zoomLevel / 100
+    console.log('PDFViewer: Rendering with scale:', scale)
 
-    await pdfService.renderPage(
-      currentPdf.value,
-      props.pageNumber,
-      canvasRef.value,
-      {
-        scale,
-        rotation: props.rotation
-      }
-    )
+    // Try primary render method first, with fallback on failure
+    try {
+      await pdfService.renderPage(
+        currentPdf.value,
+        props.pageNumber,
+        canvas,
+        {
+          scale,
+          rotation: props.rotation
+        }
+      )
+    } catch (primaryError) {
+      console.warn('PDFViewer: Primary render failed, trying fallback:', primaryError)
+      loadingMessage.value = `Retrying page ${props.pageNumber} with fallback method...`
+      
+      await pdfService.renderPageWithFallback(
+        currentPdf.value,
+        props.pageNumber,
+        canvas,
+        {
+          scale,
+          rotation: props.rotation
+        }
+      )
+    }
 
+    console.log(`PDFViewer: Successfully rendered page ${props.pageNumber}`)
     emit('pageRendered', props.pageNumber)
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Failed to render page'
+    console.error('PDFViewer: Render error:', {
+      error: err,
+      message: errorMessage,
+      pageNumber: props.pageNumber,
+      zoomLevel: props.zoomLevel
+    })
     error.value = errorMessage
     emit('error', errorMessage)
-    console.error('Failed to render page:', err)
   } finally {
     isRendering.value = false
   }
@@ -196,7 +290,13 @@ const fitToWidth = async () => {
 
 // Watch for prop changes
 watch(() => props.documentUrl, () => {
-  loadDocument()
+  if (props.documentUrl) {
+    console.log('PDFViewer: Document URL changed, loading new document:', props.documentUrl)
+    loadDocument()
+  } else {
+    console.log('PDFViewer: Document URL cleared')
+    currentPdf.value = null
+  }
 }, { immediate: true })
 
 watch(() => props.pageNumber, () => {
@@ -217,10 +317,30 @@ watch(() => props.rotation, () => {
   }
 })
 
+// Watch for canvas ref availability
+watch(canvasRef, (newCanvas) => {
+  console.log('PDFViewer: Canvas ref changed:', !!newCanvas)
+  if (newCanvas && currentPdf.value && !isRendering.value) {
+    console.log('PDFViewer: Canvas now available, triggering render')
+    renderCurrentPage()
+  }
+})
+
 // Cleanup on unmount
 onUnmounted(() => {
+  console.log('PDFViewer: Component unmounting, cleaning up')
   if (props.documentUrl) {
     pdfService.cleanup(props.documentUrl)
+  }
+  currentPdf.value = null
+})
+
+// Handle component mounted
+onMounted(() => {
+  console.log('PDFViewer: Component mounted')
+  if (props.documentUrl && !currentPdf.value) {
+    console.log('PDFViewer: Document URL present on mount, loading')
+    loadDocument()
   }
 })
 
@@ -239,9 +359,16 @@ defineExpose({
   background: #374151; /* gray-700 */
 }
 
-.pdf-canvas {
+.pdf-page-container {
+  display: inline-block;
   transition: transform 0.2s ease-in-out;
+}
+
+.pdf-canvas {
+  display: block;
   max-width: none;
+  min-width: 200px;
+  min-height: 260px;
 }
 
 /* Custom scrollbar for PDF container */
