@@ -3,16 +3,39 @@
     <!-- Classification Header -->
     <div class="bg-gray-50 px-3 py-2 border-b border-gray-200">
       <div class="flex items-center justify-between">
-        <h3 class="text-sm font-medium text-gray-700">Document Classification</h3>
+        <button 
+          @click="toggleExpanded"
+          class="flex items-center space-x-2 text-sm font-medium text-gray-700 hover:text-gray-900 transition-colors"
+        >
+          <ChevronRightIcon 
+            :class="[
+              'h-4 w-4 transform transition-transform',
+              { 'rotate-90': isExpanded }
+            ]" 
+          />
+          <span>Document Classification</span>
+          <span v-if="selectedDocument && !isExpanded" class="text-xs text-gray-500">
+            ({{ selectedDocument.documentType || 'Unclassified' }})
+          </span>
+        </button>
         <div class="flex items-center space-x-2">
           <span :class="['text-xs px-2 py-1 rounded', getConfidenceColor()]">
             {{ confidenceText }}
           </span>
+          <button
+            @click="toggleExpanded"
+            class="text-xs text-gray-500 hover:text-gray-700"
+            :title="isExpanded ? 'Collapse' : 'Expand'"
+          >
+            {{ isExpanded ? 'Collapse' : 'Expand' }}
+          </button>
         </div>
       </div>
     </div>
 
-    <!-- Document Info -->
+    <!-- Collapsible Content -->
+    <div v-show="isExpanded" class="transition-all duration-200">
+      <!-- Document Info -->
     <div v-if="selectedDocument" class="p-3 bg-white border-b border-gray-200">
       <div class="space-y-2 text-xs">
         <div class="flex justify-between">
@@ -216,6 +239,8 @@
         </div>
       </div>
     </div>
+
+    </div>
   </div>
 </template>
 
@@ -223,6 +248,7 @@
 import { ref, computed, watch } from 'vue'
 import { useMainStore } from '@/stores/main'
 import type { DocumentSummary } from '@/types/domain'
+import { ChevronRightIcon } from '@heroicons/vue/24/outline'
 
 interface Props {
   selectedDocument?: DocumentSummary | null
@@ -247,6 +273,12 @@ const selectedDocumentType = ref('')
 const classificationConfidence = ref(85)
 const updating = ref(false)
 const classificationNotes = ref('')
+const isExpanded = ref(false)
+
+// Toggle expanded state
+const toggleExpanded = () => {
+  isExpanded.value = !isExpanded.value
+}
 
 const documentAttributes = ref({
   requiresReview: false,
@@ -424,8 +456,14 @@ watch(() => props.selectedDocument, (newDoc) => {
         }
       }
     }
+    
+    // Auto-expand if document is unclassified
+    if (!newDoc.documentType) {
+      isExpanded.value = true
+    }
   } else {
     clearClassification()
+    isExpanded.value = false
   }
 })
 </script>

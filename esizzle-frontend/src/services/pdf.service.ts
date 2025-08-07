@@ -85,7 +85,7 @@ export class PDFService {
    * Render a PDF page using the centralized PDF.js import
    */
   async renderPage(
-    pdf: PDFDocumentProxy,
+    pdf: any, // Use any to avoid TypeScript conflicts with Vue reactivity
     pageNumber: number,
     canvas: HTMLCanvasElement,
     options: PDFRenderOptions = {}
@@ -227,7 +227,7 @@ export class PDFService {
    * Generate thumbnails for all pages in a PDF
    */
   async generateAllThumbnails(
-    pdf: PDFDocumentProxy,
+    pdf: any, // Use any to avoid TypeScript conflicts with Vue reactivity
     options: ThumbnailOptions = {}
   ): Promise<string[]> {
     const thumbnails: string[] = []

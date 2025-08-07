@@ -67,7 +67,7 @@
     <!-- Main Viewer Area -->
     <div class="flex-1 flex overflow-hidden">
       <!-- PDF Display Area -->
-      <div class="flex-1 flex flex-col bg-gray-700 relative">
+      <div class="flex-1 flex flex-col bg-gray-700 relative" :style="{ minWidth: mainStore.selectedDocument ? '60%' : '100%' }">
         <!-- Loading State -->
         <div 
           v-if="mainStore.loading.documentContent" 
@@ -97,12 +97,15 @@
           <div class="flex-1 relative">
             <PDFViewer
               ref="pdfViewerRef"
-              :document-url="mainStore.documentUrl"
+              :document-url="mainStore.documentUrl || undefined"
               :page-number="mainStore.currentPage"
               :zoom-level="mainStore.zoomLevel"
               @loaded="handleDocumentLoaded"
               @error="handleDocumentError"
               @page-rendered="handlePageRendered"
+              @previous-page="handlePreviousPage"
+              @next-page="handleNextPage"
+              @go-to-page="handleGoToPage"
             />
             
             <!-- Redaction Overlay -->
@@ -182,58 +185,21 @@
         </div>
       </div>
 
-      <!-- Document Thumbnail Strip (when in thumbnail mode) -->
+      <!-- Thumbnail Panel (right side of center area) -->
       <div 
-        v-if="mainStore.documentViewMode === 'thumbnail' && mainStore.selectedDocument"
-        class="w-48 bg-gray-100 border-l border-gray-300 overflow-y-auto thumbnail-strip"
+        v-if="mainStore.selectedDocument" 
+        class="w-80 bg-white border-l border-gray-300 flex-shrink-0"
       >
-        <div class="p-2 space-y-2">
-          <div
-            v-for="pageNum in mainStore.totalPages"
-            :key="pageNum"
-            :class="[
-              'thumbnail bg-white border-2 cursor-pointer transition-all',
-              {
-                'active border-hydra-600': pageNum === mainStore.currentPage,
-                'border-transparent hover:border-gray-300': pageNum !== mainStore.currentPage
-              }
-            ]"
-            @click="mainStore.goToPage(pageNum)"
-          >
-            <!-- Actual thumbnail -->
-            <div class="aspect-[8.5/11] relative overflow-hidden">
-              <img
-                v-if="thumbnails[pageNum - 1]"
-                :src="thumbnails[pageNum - 1]"
-                :alt="`Page ${pageNum}`"
-                class="w-full h-full object-contain"
-              />
-              <div 
-                v-else-if="loadingThumbnails"
-                class="w-full h-full flex items-center justify-center text-gray-400"
-              >
-                <div class="text-center">
-                  <div class="spinner-sm mb-1 border-gray-400 border-t-transparent"></div>
-                  <span class="text-xs">{{ pageNum }}</span>
-                </div>
-              </div>
-              <div 
-                v-else
-                class="w-full h-full flex items-center justify-center text-gray-400"
-              >
-                <div class="text-center">
-                  <DocumentIcon class="h-6 w-6 mx-auto mb-1" />
-                  <span class="text-xs">{{ pageNum }}</span>
-                </div>
-              </div>
-              
-              <!-- Page number overlay -->
-              <div class="absolute bottom-1 right-1 bg-black bg-opacity-60 text-white text-xs px-1 rounded">
-                {{ pageNum }}
-              </div>
-            </div>
-          </div>
-        </div>
+        <ThumbnailView
+          :selected-document="mainStore.selectedDocument"
+          :current-page="mainStore.currentPage"
+          :total-pages="mainStore.totalPages"
+          :bookmarks="indexingStore.pendingBookmarks"
+          :thumbnails="thumbnails"
+          :loading="thumbnailsLoading"
+          @page-selected="handlePageSelected"
+          @thumbnail-loaded="handleThumbnailLoaded"
+        />
       </div>
     </div>
 
@@ -249,12 +215,15 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch, nextTick } from 'vue'
+import { ref, computed, watch } from 'vue'
 import { useMainStore } from '@/stores/main'
+import { useIndexingStore } from '@/stores/indexing'
 import PDFViewer from '@/components/viewer/PDFViewer.vue'
 import DocumentToolbar from '@/components/tools/DocumentToolbar.vue'
 import RedactionOverlay from '@/components/tools/RedactionOverlay.vue'
+import ThumbnailView from '@/components/indexing/ThumbnailView.vue'
 import { pdfService } from '@/services/pdf.service'
+import type { PageThumbnailDto } from '@/types/indexing'
 import {
   DocumentIcon,
   ChevronLeftIcon,
@@ -264,43 +233,54 @@ import {
 } from '@heroicons/vue/24/outline'
 
 const mainStore = useMainStore()
+const indexingStore = useIndexingStore()
 
-// Thumbnail state
-const thumbnails = ref<string[]>([])
-const loadingThumbnails = ref(false)
+// Component refs
 const pdfViewerRef = ref<InstanceType<typeof PDFViewer>>()
 
 // Redaction state
 const redactionMode = ref(false)
 
-// Generate thumbnails for all pages
+// Thumbnail management
+const thumbnails = ref<PageThumbnailDto[]>([])
+const thumbnailsLoading = ref(false)
+
+// Generate thumbnails for the loaded PDF document
 const generateThumbnails = async () => {
-  if (!pdfViewerRef.value || !mainStore.documentUrl) {
-    return
-  }
-
-  const currentPdf = pdfViewerRef.value.getCurrentPdf()
-  if (!currentPdf) {
-    return
-  }
-
-  loadingThumbnails.value = true
-  thumbnails.value = []
-
+  if (!mainStore.documentUrl || !mainStore.totalPages) return
+  
+  thumbnailsLoading.value = true
   try {
-    const generatedThumbnails = await pdfService.generateAllThumbnails(currentPdf, {
-      scale: 0.15,
-      maxWidth: 150,
-      maxHeight: 200,
-      quality: 0.7
+    // Load the PDF document
+    const pdf = await pdfService.loadDocument(mainStore.documentUrl)
+    
+    // Generate thumbnails with appropriate sizing for 120px width and shorter height to match legacy interface
+    const thumbnailUrls = await pdfService.generateAllThumbnails(pdf, {
+      scale: 0.4,
+      maxWidth: 120,
+      maxHeight: 102, // Reduced height to match 85% aspect ratio (120 * 0.85)
+      quality: 0.8
     })
     
-    thumbnails.value = generatedThumbnails
+    // Create PageThumbnailDto objects
+    const thumbnailDtos: PageThumbnailDto[] = thumbnailUrls.map((url, index) => ({
+      pageNumber: index + 1,
+      thumbnailUrl: url,
+      width: 120,
+      height: 102, // Updated to match the new aspect ratio
+      hasBookmark: false, // Will be updated by ThumbnailView component based on bookmarks
+      bookmarkType: undefined,
+      documentTypeName: undefined
+    }))
+    
+    thumbnails.value = thumbnailDtos
+    console.log(`Generated ${thumbnailDtos.length} thumbnails`)
+    
   } catch (error) {
     console.error('Failed to generate thumbnails:', error)
     thumbnails.value = []
   } finally {
-    loadingThumbnails.value = false
+    thumbnailsLoading.value = false
   }
 }
 
@@ -309,12 +289,9 @@ const handleDocumentLoaded = async (pageCount: number) => {
   // Update total pages in store
   mainStore.totalPages = pageCount
   console.log(`Document loaded with ${pageCount} pages`)
-
-  // Generate thumbnails when document is loaded and in thumbnail mode
-  await nextTick()
-  if (mainStore.documentViewMode === 'thumbnail') {
-    generateThumbnails()
-  }
+  
+  // Generate thumbnails after document loads
+  await generateThumbnails()
 }
 
 const handleDocumentError = (error: string) => {
@@ -323,6 +300,24 @@ const handleDocumentError = (error: string) => {
 
 const handlePageRendered = (pageNumber: number) => {
   console.log(`Page ${pageNumber} rendered successfully`)
+}
+
+// Page navigation handlers
+const handlePreviousPage = () => {
+  mainStore.previousPage()
+}
+
+const handleNextPage = () => {
+  mainStore.nextPage()
+}
+
+const handleGoToPage = (page: number) => {
+  // Handle special case for "go to last page" (-1)
+  if (page === -1) {
+    mainStore.goToPage(mainStore.totalPages)
+  } else {
+    mainStore.goToPage(page)
+  }
 }
 
 // Zoom adjustment
@@ -334,14 +329,6 @@ const adjustZoom = (delta: number) => {
 // Document toolbar event handlers
 const handleDocumentRotated = (documentId: number, angle: number) => {
   console.log(`Document ${documentId} rotated ${angle} degrees`)
-  
-  // Regenerate thumbnails after rotation
-  if (mainStore.documentViewMode === 'thumbnail') {
-    // Small delay to allow document to reload
-    setTimeout(() => {
-      generateThumbnails()
-    }, 500)
-  }
 }
 
 const handleRedactionStarted = (documentId: number) => {
@@ -378,18 +365,26 @@ const handleDocumentStacked = (documentId: number) => {
   // TODO: Implement document stacking
 }
 
-// Watch for view mode changes to generate thumbnails
-watch(() => mainStore.documentViewMode, (newMode) => {
-  if (newMode === 'thumbnail' && mainStore.selectedDocument && thumbnails.value.length === 0) {
-    generateThumbnails()
+// Watch for document changes to regenerate thumbnails
+watch(() => mainStore.selectedDocument, async (newDoc) => {
+  if (newDoc && mainStore.documentUrl) {
+    thumbnails.value = []
+    await generateThumbnails()
+  } else {
+    thumbnails.value = []
   }
 })
 
-// Watch for document changes to clear thumbnails
-watch(() => mainStore.selectedDocument, () => {
-  thumbnails.value = []
-  loadingThumbnails.value = false
-})
+// Thumbnail event handlers
+const handlePageSelected = (pageNumber: number) => {
+  mainStore.currentPage = pageNumber
+}
+
+const handleThumbnailLoaded = (pageNumber: number) => {
+  // Handle thumbnail loading completion
+  console.log('Thumbnail loaded for page:', pageNumber)
+}
+
 </script>
 
 <style scoped>
@@ -404,40 +399,5 @@ watch(() => mainStore.selectedDocument, () => {
 .pdf-canvas {
   transform-origin: top center;
   transition: transform 0.2s ease-in-out;
-}
-
-.thumbnail-strip {
-  scrollbar-width: thin;
-  scrollbar-color: #cbd5e1 #f1f5f9;
-}
-
-.thumbnail-strip::-webkit-scrollbar {
-  width: 6px;
-}
-
-.thumbnail-strip::-webkit-scrollbar-track {
-  background: #f1f5f9;
-}
-
-.thumbnail-strip::-webkit-scrollbar-thumb {
-  background: #cbd5e1;
-  border-radius: 3px;
-}
-
-.thumbnail-strip::-webkit-scrollbar-thumb:hover {
-  background: #94a3b8;
-}
-
-.spinner-sm {
-  width: 16px;
-  height: 16px;
-  border: 2px solid transparent;
-  border-radius: 50%;
-  animation: spin 1s linear infinite;
-}
-
-@keyframes spin {
-  0% { transform: rotate(0deg); }
-  100% { transform: rotate(360deg); }
 }
 </style>

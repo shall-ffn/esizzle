@@ -1,0 +1,31 @@
+# ESizzle PDF Manipulation Lambda Requirements
+# Compatible with AWS Lambda Python 3.9 runtime
+
+# Core PDF processing
+PyMuPDF==1.23.8
+
+# Database connectivity
+PyMySQL==1.1.0
+
+# AWS services
+boto3==1.34.0
+botocore==1.34.0
+
+# HTTP clients for callbacks
+requests==2.31.0
+aiohttp==3.8.6
+
+# Async support
+asyncio-throttle==1.0.2
+
+# Image processing (for rasterization)
+Pillow==10.0.1
+
+# Utilities
+python-dateutil==2.8.2
+typing-extensions==4.8.0
+
+# Testing (for development)
+pytest==7.4.0
+pytest-asyncio==0.21.1
+moto==4.2.0

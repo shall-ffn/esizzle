@@ -82,6 +82,9 @@ interface Emits {
   (e: 'loaded', pages: number): void
   (e: 'error', error: string): void
   (e: 'pageRendered', page: number): void
+  (e: 'previousPage'): void
+  (e: 'nextPage'): void
+  (e: 'goToPage', page: number): void
 }
 
 const props = withDefaults(defineProps<Props>(), {
@@ -125,11 +128,10 @@ const loadDocument = async () => {
     
     // Debug: Log PDF document info
     console.log('PDFViewer: PDF document info:', {
-      numPages: pdf.numPages,
-      fingerprint: pdf.fingerprint || 'N/A'
+      numPages: pdf.numPages
     })
     
-    // Use markRaw to prevent Vue reactivity interference with PDF.js objects
+    // Store PDF document using markRaw to prevent Vue reactivity corruption
     currentPdf.value = markRaw(pdf)
 
     // Emit loaded event with page count
@@ -215,31 +217,16 @@ const renderCurrentPage = async () => {
     const scale = props.zoomLevel / 100
     console.log('PDFViewer: Rendering with scale:', scale)
 
-    // Try primary render method first, with fallback on failure
-    try {
-      await pdfService.renderPage(
-        currentPdf.value,
-        props.pageNumber,
-        canvas,
-        {
-          scale,
-          rotation: props.rotation
-        }
-      )
-    } catch (primaryError) {
-      console.warn('PDFViewer: Primary render failed, trying fallback:', primaryError)
-      loadingMessage.value = `Retrying page ${props.pageNumber} with fallback method...`
-      
-      await pdfService.renderPageWithFallback(
-        currentPdf.value,
-        props.pageNumber,
-        canvas,
-        {
-          scale,
-          rotation: props.rotation
-        }
-      )
-    }
+    // Render the page
+    await pdfService.renderPage(
+      currentPdf.value,
+      props.pageNumber,
+      canvas,
+      {
+        scale,
+        rotation: props.rotation
+      }
+    )
 
     console.log(`PDFViewer: Successfully rendered page ${props.pageNumber}`)
     emit('pageRendered', props.pageNumber)
@@ -333,7 +320,76 @@ onUnmounted(() => {
     pdfService.cleanup(props.documentUrl)
   }
   currentPdf.value = null
+  
+  // Remove event listeners
+  document.removeEventListener('keydown', handleKeyDown)
+  if (containerRef.value) {
+    containerRef.value.removeEventListener('wheel', handleWheel)
+  }
 })
+
+// Handle keyboard navigation
+const handleKeyDown = (event: KeyboardEvent) => {
+  if (!currentPdf.value || !emit) return
+  
+  // Only handle if no input elements are focused
+  if (document.activeElement && ['input', 'textarea'].includes(document.activeElement.tagName.toLowerCase())) {
+    return
+  }
+  
+  switch (event.key) {
+    case 'ArrowLeft':
+    case 'ArrowUp':
+    case 'PageUp':
+      event.preventDefault()
+      emit('previousPage')
+      break
+    case 'ArrowRight':
+    case 'ArrowDown':
+    case 'PageDown':
+    case ' ': // Spacebar
+      event.preventDefault()
+      emit('nextPage')
+      break
+    case 'Home':
+      event.preventDefault()
+      emit('goToPage', 1)
+      break
+    case 'End':
+      event.preventDefault()
+      emit('goToPage', -1) // -1 will be handled as last page by parent
+      break
+  }
+}
+
+// Handle scroll wheel navigation
+const handleWheel = (event: WheelEvent) => {
+  if (!currentPdf.value || !emit) return
+  
+  console.log('PDFViewer: Wheel event detected', {
+    deltaY: event.deltaY,
+    ctrlKey: event.ctrlKey,
+    metaKey: event.metaKey
+  })
+  
+  // Use wheel events for page navigation when not zooming
+  // If Ctrl/Cmd is held, it's for zooming, so skip page navigation
+  if (!event.ctrlKey && !event.metaKey) {
+    // Only prevent default and navigate if the scroll is significant
+    if (Math.abs(event.deltaY) > 50) {
+      event.preventDefault()
+      console.log('PDFViewer: Wheel navigation triggered')
+      
+      if (event.deltaY > 0) {
+        console.log('PDFViewer: Emitting nextPage')
+        emit('nextPage')
+      } else if (event.deltaY < 0) {
+        console.log('PDFViewer: Emitting previousPage')
+        emit('previousPage')
+      }
+    }
+  }
+}
 
 // Handle component mounted
 onMounted(() => {
@@ -341,6 +397,12 @@ onMounted(() => {
   if (props.documentUrl && !currentPdf.value) {
     console.log('PDFViewer: Document URL present on mount, loading')
     loadDocument()
+  }
+  
+  // Add keyboard and scroll event listeners
+  document.addEventListener('keydown', handleKeyDown)
+  if (containerRef.value) {
+    containerRef.value.addEventListener('wheel', handleWheel, { passive: false })
   }
 })
 
@@ -350,7 +412,7 @@ defineExpose({
   fitToWidth,
   isLoading: () => loading.value,
   hasError: () => !!error.value,
-  getCurrentPdf: () => currentPdf.value
+  getCurrentPdf: () => currentPdf.value ? markRaw(currentPdf.value) : null
 })
 </script>
 

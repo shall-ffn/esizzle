@@ -134,7 +134,7 @@ public class ArrayClient : IArrayClient
         var tokenJson = tokenResponse.Content.ReadAsStringAsync().Result;
         var accessToken = JsonConvert.DeserializeObject<Token>(tokenJson);
 
-        return accessToken;
+        return accessToken ?? new Token();
     }
     
     private HttpResponseMessage ValidatedResponse(HttpResponseMessage response)
@@ -940,10 +940,19 @@ public class ArrayClient : IArrayClient
             {
                 _logger.LogError(ex, "Error getting user integration data for {Email}", email);
                 System.Diagnostics.Debug.WriteLine(ex.Message);
-                throw ex;
+                throw;
             }
         }
-        return retval;
+        return retval ?? new UserIntegrationModel 
+        { 
+            Email = email,
+            Name = "Unknown User",
+            UserId = 0,
+            ClientId = null,
+            Permissions = Array.Empty<string>(),
+            SystemRoles = new List<Models.SystemRoleEnum>(),
+            ProjectRoles = new List<ProjectRoleModel>()
+        };
     }
     
     /// <summary>

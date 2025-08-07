@@ -7,12 +7,30 @@
           Hydra Due Diligence - eStacker Web
         </h1>
         
-        <!-- Breadcrumb showing current selection -->
+        <!-- Enhanced Breadcrumb showing current selection -->
         <nav class="flex items-center space-x-2 text-sm text-gray-500" v-if="mainStore.selectionPath.length > 0">
           <span>•</span>
           <template v-for="(item, index) in mainStore.selectionPath" :key="index">
-            <span class="text-gray-700">{{ item.name }}</span>
+            <button
+              v-if="item.type === 'loan' && mainStore.selectedDocument"
+              @click="navigateToLoanLevel"
+              class="text-hydra-600 hover:text-hydra-700 hover:underline cursor-pointer"
+              title="Back to Loan Selection"
+            >
+              {{ item.name }}
+            </button>
+            <span v-else class="text-gray-700">{{ item.name }}</span>
             <span v-if="index < mainStore.selectionPath.length - 1" class="text-gray-400">→</span>
+          </template>
+          <!-- Document indication -->
+          <template v-if="mainStore.selectedDocument">
+            <span class="text-gray-400">→</span>
+            <span class="text-gray-700 max-w-xs truncate">
+              {{ mainStore.selectedDocument.originalName }}
+            </span>
+            <span class="text-xs text-gray-400 bg-gray-100 px-2 py-1 rounded">
+              {{ mainStore.selectedDocument.documentType || 'Unclassified' }}
+            </span>
           </template>
         </nav>
       </div>
@@ -22,59 +40,47 @@
         <div class="text-sm text-gray-600" v-if="mainStore.currentUser">
           Logged in: {{ mainStore.currentUser.name }}
         </div>
-        
-        <!-- Menu items matching legacy -->
-        <div class="flex items-center space-x-2">
-          <button class="toolbar-button text-xs">IT Admin</button>
-          <button class="toolbar-button text-xs">Utilities</button>
-          <button class="toolbar-button text-xs">Imaging Admin</button>
-          <button class="toolbar-button text-xs">eStacker</button>
-          <button class="toolbar-button text-xs">Export</button>
-          <button class="toolbar-button text-xs">View</button>
-          <button class="toolbar-button text-xs">Reports</button>
-          <button class="toolbar-button text-xs">Help</button>
-        </div>
       </div>
     </header>
 
     <!-- Main Content Area - Three Panel Layout -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- Left Panel - Document Grid and Actions -->
-      <div 
-        class="bg-white border-r border-gray-200 flex flex-col"
-        :style="{ width: `${mainStore.panelSizes.left}px` }"
-      >
-        <LeftPanel />
+        <!-- Left Panel - Document Grid and Actions -->
+        <div 
+          class="bg-white border-r border-gray-200 flex flex-col"
+          :style="{ width: `${mainStore.panelSizes.left}px` }"
+        >
+          <LeftPanel />
+        </div>
+
+        <!-- Resize Handle for Left Panel -->
+        <div 
+          class="resize-handle"
+          @mousedown="startResize('left', $event)"
+        ></div>
+
+        <!-- Center Panel - PDF Viewer -->
+        <div 
+          class="bg-gray-800 flex flex-col flex-1"
+          :style="{ width: `${mainStore.panelSizes.center}px` }"
+        >
+          <CenterPanel />
+        </div>
+
+        <!-- Resize Handle for Right Panel -->
+        <div 
+          class="resize-handle"
+          @mousedown="startResize('right', $event)"
+        ></div>
+
+        <!-- Right Panel - Selection and Indexing -->
+        <div 
+          class="bg-white border-l border-gray-200 flex flex-col"
+          :style="{ width: `${mainStore.panelSizes.right}px` }"
+        >
+          <RightPanel />
+        </div>
       </div>
-
-      <!-- Resize Handle for Left Panel -->
-      <div 
-        class="resize-handle"
-        @mousedown="startResize('left', $event)"
-      ></div>
-
-      <!-- Center Panel - PDF Viewer -->
-      <div 
-        class="bg-gray-800 flex flex-col flex-1"
-        :style="{ width: `${mainStore.panelSizes.center}px` }"
-      >
-        <CenterPanel />
-      </div>
-
-      <!-- Resize Handle for Right Panel -->
-      <div 
-        class="resize-handle"
-        @mousedown="startResize('right', $event)"
-      ></div>
-
-      <!-- Right Panel - Selection and Indexing -->
-      <div 
-        class="bg-white border-l border-gray-200 flex flex-col"
-        :style="{ width: `${mainStore.panelSizes.right}px` }"
-      >
-        <RightPanel />
-      </div>
-    </div>
 
     <!-- Status Bar -->
     <footer class="bg-gray-100 border-t border-gray-200 px-4 py-1 text-xs text-gray-600 flex items-center justify-between">
@@ -103,11 +109,24 @@
 <script setup lang="ts">
 import { ref, onMounted, onUnmounted } from 'vue'
 import { useMainStore } from '@/stores/main'
+import { useIndexingStore } from '@/stores/indexing'
 import LeftPanel from './LeftPanel.vue'
 import CenterPanel from './CenterPanel.vue'
 import RightPanel from './RightPanel.vue'
+import type { BookmarkDto } from '@/types/indexing'
 
 const mainStore = useMainStore()
+const indexingStore = useIndexingStore()
+
+// Navigation functions
+const navigateToLoanLevel = () => {
+  // Clear selected document to return to loan list view
+  mainStore.selectedDocument = null
+  mainStore.selectedDocumentDetails = null
+  mainStore.documentUrl = null
+  mainStore.currentPage = 1
+  mainStore.totalPages = 0
+}
 
 // Panel resizing functionality
 const isResizing = ref(false)
@@ -119,9 +138,12 @@ const startResize = (panel: 'left' | 'right', event: MouseEvent) => {
   isResizing.value = true
   resizePanel.value = panel
   initialMouseX.value = event.clientX
-  initialPanelSize.value = panel === 'left' 
-    ? mainStore.panelSizes.left 
-    : mainStore.panelSizes.right
+  
+  if (panel === 'left') {
+    initialPanelSize.value = mainStore.panelSizes.left
+  } else if (panel === 'right') {
+    initialPanelSize.value = mainStore.panelSizes.right
+  }
 
   document.addEventListener('mousemove', handleResize)
   document.addEventListener('mouseup', stopResize)
@@ -156,6 +178,7 @@ const stopResize = () => {
   document.body.style.cursor = ''
   document.body.style.userSelect = ''
 }
+
 
 // Cleanup event listeners on unmount
 onUnmounted(() => {

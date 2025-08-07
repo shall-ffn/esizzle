@@ -57,8 +57,33 @@
 
     <!-- Loan List Section -->
     <div class="flex-1 flex flex-col overflow-hidden">
-      <!-- Search Loans -->
+      <!-- Navigation and Search Header -->
       <div class="p-3 border-b border-gray-200 bg-gray-50">
+        <!-- Back to Loans Button (shown when document is selected) -->
+        <div v-if="mainStore.selectedDocument" class="flex items-center space-x-2 mb-3">
+          <button
+            @click="backToLoanSelection"
+            class="flex items-center space-x-2 px-3 py-2 text-sm text-hydra-600 hover:text-hydra-700 hover:bg-hydra-50 rounded-md transition-colors"
+          >
+            <ArrowLeftIcon class="h-4 w-4" />
+            <span>Back to Loans</span>
+          </button>
+          <div class="flex-1 text-xs text-gray-500 truncate">
+            Viewing: {{ mainStore.selectedDocument.originalName }}
+          </div>
+        </div>
+        
+        <!-- Workflow Status -->
+        <div v-if="!mainStore.selectedDocument && mainStore.selectedLoan" class="flex items-center justify-between mb-2">
+          <div class="text-xs font-medium text-gray-700">
+            Loan: {{ mainStore.selectedLoan.assetName }}
+          </div>
+          <div class="text-xs text-gray-500">
+            {{ mainStore.availableDocuments.length }} docs
+          </div>
+        </div>
+        
+        <!-- Search Loans -->
         <input
           type="text"
           placeholder="Search Loans"
@@ -162,22 +187,93 @@
       </div>
     </div>
 
-    <!-- Enhanced Document Classification -->
-    <DocumentClassifier :selected-document="mainStore.selectedDocument" />
+    <!-- Document Indexing Section (when document is selected) -->
+    <div v-if="mainStore.selectedDocument" class="border-t border-gray-200 flex-1 flex flex-col">
+      <!-- Indexing Toolbar -->
+      <div class="border-b border-gray-200 bg-gray-50">
+        <IndexingToolbar
+          :selected-document="mainStore.selectedDocument"
+          :available-document-types="indexingStore.availableDocumentTypes"
+          :selected-document-type="indexingStore.selectedDocumentType"
+          :current-offering="mainStore.selectedOffering"
+          :current-page="mainStore.currentPage"
+          :loading="indexingStore.documentTypesLoading"
+          @document-type-selected="handleDocumentTypeSelected"
+          @document-type-cleared="handleDocumentTypeCleared"
+          @set-break-clicked="handleSetBreakClicked"
+          @save-image-data-clicked="handleSaveImageData"
+        />
+      </div>
+      
+      <!-- Document Indexing - Lower Section -->
+      <div class="flex-1 flex flex-col min-h-0">
+        <!-- Document Indexing Information -->
+        <div class="flex-1 bg-white border-t border-gray-200 min-h-0">
+          <div class="p-3 border-b border-gray-200 bg-gray-50">
+            <h3 class="text-sm font-medium text-gray-700">Document Indexing</h3>
+          </div>
+          
+          <!-- Document Type Information -->
+          <div class="p-3 space-y-3">
+            <div v-if="indexingStore.selectedDocumentType">
+              <div class="text-xs font-medium text-gray-700 mb-1">Selected Document Type:</div>
+              <div class="text-sm text-gray-900 bg-blue-50 border border-blue-200 rounded px-2 py-1">
+                {{ indexingStore.selectedDocumentType.name }}
+              </div>
+            </div>
+            
+            <!-- Bookmarks/Indexes List -->
+            <div>
+              <div class="text-xs font-medium text-gray-700 mb-2">Indexes:</div>
+              <div class="space-y-1 max-h-32 overflow-y-auto">
+                <div 
+                  v-for="(bookmark, index) in indexingStore.pendingBookmarks" 
+                  :key="bookmark.id || index"
+                  class="flex items-center justify-between text-xs p-2 bg-gray-50 border border-gray-200 rounded"
+                >
+                  <div class="flex-1 min-w-0">
+                    <div class="font-medium text-gray-900 truncate">
+                      {{ bookmark.documentTypeName || 'Unclassified' }}
+                    </div>
+                    <div class="text-gray-500">Page {{ bookmark.pageIndex + 1 }}</div>
+                  </div>
+                  <button 
+                    @click="handleNavigateToBookmark(bookmark)"
+                    class="text-blue-600 hover:text-blue-700 ml-2"
+                    title="Navigate to page"
+                  >
+                    →
+                  </button>
+                </div>
+                <div 
+                  v-if="indexingStore.pendingBookmarks.length === 0"
+                  class="text-xs text-gray-500 text-center py-4"
+                >
+                  No document indexes found
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
 import { ref, computed, watch } from 'vue'
 import { useMainStore } from '@/stores/main'
-import DocumentClassifier from '@/components/indexing/DocumentClassifier.vue'
+import IndexingToolbar from '@/components/indexing/IndexingToolbar.vue'
+import { useIndexingStore } from '@/stores/indexing'
 import type { Offering, Sale, Loan } from '@/types/domain'
 import {
   ChevronUpIcon,
-  ChevronDownIcon
+  ChevronDownIcon,
+  ArrowLeftIcon
 } from '@heroicons/vue/24/outline'
 
 const mainStore = useMainStore()
+const indexingStore = useIndexingStore()
 
 // Local state
 const loanSearchInput = ref('')
@@ -210,7 +306,7 @@ const handleSaleChange = (event: Event) => {
 }
 
 // Handle loan search
-let searchTimeout: NodeJS.Timeout | null = null
+let searchTimeout: number | null = null
 
 const handleLoanSearch = () => {
   // Clear existing timeout
@@ -232,6 +328,16 @@ const clearLoanSearch = () => {
 // Handle loan selection
 const selectLoan = (loan: Loan) => {
   mainStore.selectLoan(loan)
+}
+
+// Navigation functions
+const backToLoanSelection = () => {
+  // Clear selected document to return to loan list view
+  mainStore.selectedDocument = null
+  mainStore.selectedDocumentDetails = null
+  mainStore.documentUrl = null
+  mainStore.currentPage = 1
+  mainStore.totalPages = 0
 }
 
 // Handle document date change
@@ -292,15 +398,85 @@ const getStatusText = (statusId: number) => {
       return 'Unknown'
   }
 }
+
+// Indexing event handlers
+const handleDocumentTypeSelected = (documentType: any) => {
+  indexingStore.selectDocumentType(documentType)
+}
+
+const handleDocumentTypeCleared = () => {
+  indexingStore.clearDocumentTypeSelection()
+}
+
+const handleSetBreakClicked = async (pageIndex: number) => {
+  if (!mainStore.selectedDocument) return
+  try {
+    await indexingStore.createBookmark(mainStore.selectedDocument.id, pageIndex)
+  } catch (error) {
+    console.error('Failed to create bookmark:', error)
+  }
+}
+
+const handleSaveImageData = async (data: any) => {
+  if (!mainStore.selectedDocument) return
+  try {
+    await indexingStore.executeSaveProcess(mainStore.selectedDocument.id)
+  } catch (error) {
+    console.error('Failed to save image data:', error)
+  }
+}
+
+const handlePageSelected = (pageNumber: number) => {
+  mainStore.currentPage = pageNumber
+}
+
+const handleThumbnailLoaded = (pageNumber: number) => {
+  // Handle thumbnail loading completion
+  console.log('Thumbnail loaded for page:', pageNumber)
+}
+
+const handleNavigateToBookmark = (bookmark: any) => {
+  // Navigate to the bookmark's page
+  mainStore.currentPage = bookmark.pageIndex + 1 // Convert from 0-based to 1-based
+}
 </script>
 
 <style scoped>
 /* Additional component-specific styles */
 .loan-list {
-  max-height: 400px;
+  /* Ensure loan list gets adequate space */
+  min-height: 300px;
+  max-height: 60vh;
+}
+
+.loan-list-item {
+  @apply px-3 py-2 border-b border-gray-100 hover:bg-gray-50 transition-colors;
 }
 
 .loan-list-item.selected {
   @apply bg-orange-100 border-l-4 border-l-orange-400;
+}
+
+/* Ensure back button is prominent */
+.loan-list-item:hover {
+  @apply shadow-sm;
+}
+
+/* Improve scrollbar styling for loan list */
+.loan-list::-webkit-scrollbar {
+  width: 6px;
+}
+
+.loan-list::-webkit-scrollbar-track {
+  background: #f1f1f1;
+}
+
+.loan-list::-webkit-scrollbar-thumb {
+  background: #c1c1c1;
+  border-radius: 3px;
+}
+
+.loan-list::-webkit-scrollbar-thumb:hover {
+  background: #a1a1a1;
 }
 </style>
