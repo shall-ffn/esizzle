@@ -13,6 +13,7 @@
   <ItemGroup>
     <PackageReference Include="Amazon.Lambda.AspNetCoreServer.Hosting" Version="1.6.0" />
     <PackageReference Include="AWSSDK.Extensions.NETCore.Setup" Version="4.0.2.1" />
+    <PackageReference Include="AWSSDK.Lambda" Version="4.0.2.3" />
     <PackageReference Include="AWSSDK.SecretsManager" Version="4.0.0.15" />
     <PackageReference Include="AWSSDK.S3" Version="4.0.6.2" />
     <PackageReference Include="Dapper" Version="2.1.24" />

@@ -2,6 +2,7 @@ using Amazon.SecretsManager;
 using Amazon.SecretsManager.Model;
 using Amazon.S3;
 using Amazon.Extensions.NETCore.Setup;
+using EsizzleAPI.Controllers;
 using EsizzleAPI.Middleware;
 using EsizzleAPI.Repositories;
 using EsizzleAPI.Services;
@@ -39,6 +40,7 @@ builder.Services.AddScoped<ISaleRepository, SaleRepository>();
 builder.Services.AddScoped<ILoanRepository, LoanRepository>();
 builder.Services.AddScoped<IDocumentRepository, DocumentRepository>();
 builder.Services.AddScoped<ISecurityRepository, SecurityRepository>();
+builder.Services.AddScoped<IIndexingRepository, IndexingRepository>();
 
 // Register ArrayClient service for external authentication
 builder.Services.AddHttpClient<IArrayClient, ArrayClient>();
@@ -47,6 +49,9 @@ builder.Services.AddScoped<IArrayClient, ArrayClient>();
 // Register AWS services
 builder.Services.AddAWSService<Amazon.S3.IAmazonS3>();
 builder.Services.AddScoped<IS3DocumentService, S3DocumentService>();
+
+// Register Lambda service
+builder.Services.AddScoped<ILambdaService, LambdaService>();
 
 // Register PDF token service for secure PDF access
 builder.Services.AddScoped<IPdfTokenService, PdfTokenService>();

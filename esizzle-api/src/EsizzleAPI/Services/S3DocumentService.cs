@@ -12,8 +12,6 @@ public class S3DocumentService : IS3DocumentService
     private readonly string _tempDirectory;
     private readonly bool _enableLocalCaching;
     private readonly string _environment;
-    private readonly string _environmentPath;
-    private readonly bool _useProductionPaths;
 
     public S3DocumentService(IAmazonS3 s3Client, ILogger<S3DocumentService> logger, IConfiguration configuration)
     {
@@ -22,9 +20,7 @@ public class S3DocumentService : IS3DocumentService
         _defaultBucketName = configuration["AWS:S3:DocumentBucket"] ?? throw new ArgumentException("AWS:S3:DocumentBucket configuration is required");
         _tempDirectory = configuration["AWS:S3:TempDirectory"] ?? Path.Combine(Path.GetTempPath(), "esizzle-documents");
         _enableLocalCaching = configuration.GetValue<bool>("AWS:S3:EnableLocalCaching", true);
-        _useProductionPaths = configuration.GetValue<bool>("AWS:S3:UseProductionPaths", false);
         _environment = configuration["Environment"] ?? "Development";
-        _environmentPath = GetEnvironmentPath(_environment);
 
         // Ensure temp directory exists
         if (_enableLocalCaching && !Directory.Exists(_tempDirectory))
@@ -33,8 +29,8 @@ public class S3DocumentService : IS3DocumentService
             _logger.LogInformation("Created temp directory for document caching: {TempDirectory}", _tempDirectory);
         }
 
-        _logger.LogInformation("S3DocumentService initialized for environment: {Environment}, path: {EnvironmentPath}, useProductionPaths: {UseProductionPaths}", 
-            _environment, _environmentPath, _useProductionPaths);
+        _logger.LogInformation("S3DocumentService initialized for environment: {Environment} with bucket: {BucketName}", 
+            _environment, _defaultBucketName);
     }
 
     /// <summary>
@@ -482,30 +478,18 @@ public class S3DocumentService : IS3DocumentService
     }
 
     /// <summary>
-    /// Get environment-aware bucket name from BucketPrefix
-    /// Supports UseProductionPaths override for development
+    /// Get environment-specific bucket name
+    /// Simplified: Uses configured bucket per environment (dev vs prod)
     /// </summary>
-    public string GetEnvironmentBucketName(string? bucketPrefix)
+    public string GetEnvironmentBucketName(string? bucketPrefix = null)
     {
-        var bucketName = !string.IsNullOrEmpty(bucketPrefix) ? bucketPrefix : _defaultBucketName;
+        // Simple environment-based bucket selection
+        // bucketPrefix parameter kept for compatibility but no longer used in bucket name
+        var bucketName = _defaultBucketName;
         
-        // If UseProductionPaths is enabled, always use production bucket structure
-        if (_useProductionPaths)
-        {
-            _logger.LogDebug("Using production paths override - bucket: {BucketName}", bucketName);
-            return bucketName;
-        }
-        
-        // For production environment, use bucket name as-is
-        if (_environment.Equals("Production", StringComparison.OrdinalIgnoreCase))
-        {
-            return bucketName;
-        }
-
-        // For non-production, append environment path
-        var environmentBucket = $"{bucketName}{_environmentPath}";
-        _logger.LogDebug("Using environment-specific bucket: {EnvironmentBucket}", environmentBucket);
-        return environmentBucket;
+        _logger.LogDebug("Using environment-specific bucket: {BucketName} for environment: {Environment}", 
+            bucketName, _environment);
+        return bucketName;
     }
 
     /// <summary>
@@ -696,25 +680,15 @@ public class S3DocumentService : IS3DocumentService
         return statuses.Any(IsProcessedStatus);
     }
 
-    /// <summary>
-    /// Get environment path suffix for bucket names
-    /// </summary>
-    private string GetEnvironmentPath(string environment)
-    {
-        return environment.ToLowerInvariant() switch
-        {
-            "production" => "",
-            "prod" => "",
-            _ => $"/Branches/{environment}"
-        };
-    }
+
 
     /// <summary>
-    /// Get bucket name from BucketPrefix or use default
+    /// Get bucket name (environment-specific only)
     /// </summary>
-    private string GetBucketName(string? bucketPrefix)
+    private string GetBucketName(string? bucketPrefix = null)
     {
-        return !string.IsNullOrEmpty(bucketPrefix) ? bucketPrefix : _defaultBucketName;
+        // bucketPrefix parameter kept for compatibility but no longer used in bucket name
+        return _defaultBucketName;
     }
 
     /// <summary>

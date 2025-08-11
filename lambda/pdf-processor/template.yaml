@@ -1,0 +1,87 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Transform: AWS::Serverless-2016-10-31
+Description: >
+  Esizzle PDF Processor Lambda Function
+  Handles document splitting at bookmark positions for the Esizzle indexing system
+
+# Global settings
+Globals:
+  Function:
+    Timeout: 300  # 5 minutes for PDF processing
+    MemorySize: 512
+    Runtime: python3.9
+    Environment:
+      Variables:
+        # Environment variables for local development
+        S3_BUCKET_NAME: esizzle-documents-dev
+        DB_HOST: localhost
+        DB_USER: root
+        DB_PASSWORD: password
+        DB_NAME: loanmaster
+        DB_PORT: 3306
+        API_BASE_URL: http://host.docker.internal:5000  # For SAM local to reach your API
+        API_SERVICE_TOKEN: local-sam-token
+        API_TIMEOUT: 30
+        API_RETRY_ATTEMPTS: 3
+        DEBUG_MODE: true
+
+# Lambda Functions
+Resources:
+  PdfProcessorFunction:
+    Type: AWS::Serverless::Function
+    Properties:
+      FunctionName: pdf-processor
+      CodeUri: ./
+      Handler: lambda_function.lambda_handler
+      Description: "Processes PDF documents by splitting at bookmark positions"
+      
+      # Environment variables (can override globals)
+      Environment:
+        Variables:
+          FUNCTION_NAME: pdf-processor
+      
+      # IAM permissions for production (commented out for local dev)
+      # Policies:
+      #   - S3ReadPolicy:
+      #       BucketName: !Ref S3Bucket
+      #   - S3WritePolicy:
+      #       BucketName: !Ref S3Bucket
+      #   - VPCAccessPolicy: {}
+      
+      # VPC configuration for database access (production)
+      # VpcConfig:
+      #   SecurityGroupIds:
+      #     - sg-your-security-group
+      #   SubnetIds:
+      #     - subnet-your-subnet-1
+      #     - subnet-your-subnet-2
+      
+      # Events that trigger this function
+      Events:
+        # Direct invocation (what your API uses)
+        DirectInvoke:
+          Type: Api
+          Properties:
+            Path: /invoke
+            Method: post
+            
+        # Optional: API Gateway for manual testing
+        ApiEvent:
+          Type: Api
+          Properties:
+            Path: /pdf-processor
+            Method: post
+
+# Outputs for easy reference
+Outputs:
+  PdfProcessorFunction:
+    Description: "PDF Processor Lambda Function ARN"
+    Value: !GetAtt PdfProcessorFunction.Arn
+    
+  PdfProcessorFunctionIamRole:
+    Description: "Implicit IAM Role created for PDF Processor function"
+    Value: !GetAtt PdfProcessorFunctionRole.Arn
+    
+  ApiEndpoint:
+    Description: "API Gateway endpoint URL for testing"
+    Value: !Sub "https://${ServerlessRestApi}.execute-api.${AWS::Region}.amazonaws.com/Prod/pdf-processor/"

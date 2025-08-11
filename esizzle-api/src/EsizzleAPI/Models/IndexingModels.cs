@@ -8,7 +8,7 @@ namespace EsizzleAPI.Models
     /// <summary>
     /// Main document table matching legacy Images schema
     /// </summary>
-    [Table("Images")]
+    [Table("Image")]
     public class Image
     {
         [Key]
@@ -57,7 +57,7 @@ namespace EsizzleAPI.Models
     /// <summary>
     /// Document bookmarks/breaks table matching legacy schema
     /// </summary>
-    [Table("ImageBookmarks")]
+    [Table("ImageBookmark")]
     public class ImageBookmark
     {
         [Key]
@@ -95,7 +95,7 @@ namespace EsizzleAPI.Models
     /// <summary>
     /// Master document types table matching legacy schema
     /// </summary>
-    [Table("ImageDocTypeMasterLists")]
+    [Table("ImageDocTypeMasterList")]
     public class ImageDocTypeMasterList
     {
         [Key]

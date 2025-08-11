@@ -9,8 +9,8 @@ export interface DocumentTypeDto {
   name: string
   isGeneric: boolean
   code: string
-  dateCreated: Date
-  isUsed: boolean
+  dateCreated?: Date
+  isUsed?: boolean
 }
 
 // Bookmark from ImageBookmarks table
@@ -86,9 +86,19 @@ export interface UpdateBookmarkRequest {
   comments?: string
 }
 
+// Backend-expected bookmark processing info
+export interface BookmarkProcessingInfo {
+  bookmarkId: number
+  pageIndex: number
+  documentTypeId: number
+  documentTypeName: string
+  documentDate?: Date
+  comments?: string
+}
+
 export interface ProcessBookmarksRequest {
-  bookmarks: BookmarkDto[]
-  processingMode: 'split' | 'rename'
+  bookmarks: BookmarkProcessingInfo[]
+  documentMetadata?: DocumentMetadata
 }
 
 // Document metadata for save operations

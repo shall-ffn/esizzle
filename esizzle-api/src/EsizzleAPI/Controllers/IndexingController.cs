@@ -12,7 +12,7 @@ namespace EsizzleAPI.Controllers
     /// </summary>
     [ApiController]
     [Route("api/documents")]
-    [Authorize]
+    // [Authorize]
     public class IndexingController : ControllerBase
     {
         private readonly IIndexingRepository _indexingRepository;

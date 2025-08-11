@@ -13,7 +13,8 @@ import type {
   SaveProgress,
   SaveError,
   IndexingChangeSummary,
-  DocumentMetadata
+  DocumentMetadata,
+  BookmarkProcessingInfo
 } from '@/types/indexing'
 import type { DocumentSummary, Offering } from '@/types/domain'
 import { indexingApi } from '@/services/indexing-api'
@@ -331,6 +332,9 @@ export const useIndexingStore = defineStore('indexing', () => {
       
       // 5. Update UI with results
       processingSession.value = result
+      if (result.status === 'queued' || result.status === 'processing') {
+        void pollProcessingStatus(result.sessionId)
+      }
       await refreshProcessingResults(documentId)
       clearWorkingState()
       
@@ -362,20 +366,28 @@ export const useIndexingStore = defineStore('indexing', () => {
   }
   
   const saveWithIndexOnly = async (documentId: number): Promise<ProcessingSessionDto> => {
+    const bookmarkInfos: BookmarkProcessingInfo[] = pendingBookmarks.value.map(b => ({
+      bookmarkId: b.id,
+      pageIndex: b.pageIndex,
+      documentTypeId: b.imageDocumentTypeId,
+      documentTypeName: b.documentTypeName
+    }))
     const request: ProcessBookmarksRequest = {
-      bookmarks: pendingBookmarks.value,
-      processingMode: 'rename'
+      bookmarks: bookmarkInfos
     }
-    
     return await indexingApi.processBookmarks(documentId, request)
   }
   
   const processDocumentSplitting = async (documentId: number): Promise<ProcessingSessionDto> => {
+    const bookmarkInfos: BookmarkProcessingInfo[] = pendingBookmarks.value.map(b => ({
+      bookmarkId: b.id,
+      pageIndex: b.pageIndex,
+      documentTypeId: b.imageDocumentTypeId,
+      documentTypeName: b.documentTypeName
+    }))
     const request: ProcessBookmarksRequest = {
-      bookmarks: pendingBookmarks.value,
-      processingMode: 'split'
+      bookmarks: bookmarkInfos
     }
-    
     return await indexingApi.processBookmarks(documentId, request)
   }
   
@@ -400,6 +412,10 @@ export const useIndexingStore = defineStore('indexing', () => {
         processingSession.value = session
         
         if (session.status === 'completed' || session.status === 'error') {
+          // Final refresh of results when processing completes
+          if (session.documentId) {
+            await refreshProcessingResults(session.documentId)
+          }
           return // Polling complete
         }
         

@@ -1,0 +1,38 @@
+{
+  "documentId": 123,
+  "sessionId": "debug-session-001",
+  "operation": "split_document",
+  "bookmarks": [
+    {
+      "bookmarkId": 1,
+      "pageIndex": 0,
+      "documentTypeId": 42,
+      "documentTypeName": "Agreement",
+      "documentDate": "2024-08-11T00:00:00Z",
+      "comments": "First document - Agreement section"
+    },
+    {
+      "bookmarkId": 2,
+      "pageIndex": 5,
+      "documentTypeId": 43,
+      "documentTypeName": "Amendment",
+      "documentDate": "2024-08-11T00:00:00Z",
+      "comments": "Second document - Amendment section"
+    },
+    {
+      "bookmarkId": 3,
+      "pageIndex": 10,
+      "documentTypeId": 44,
+      "documentTypeName": "Schedule",
+      "documentDate": "2024-08-11T00:00:00Z",
+      "comments": "Third document - Schedule section"
+    }
+  ],
+  "metadata": {
+    "userId": 21496,
+    "bucketPrefix": "ffn",
+    "offeringId": 302,
+    "loanId": 456,
+    "loanNumber": "LOAN-001-TEST"
+  }
+}

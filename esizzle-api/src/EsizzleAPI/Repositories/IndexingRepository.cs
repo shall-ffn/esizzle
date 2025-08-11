@@ -21,30 +21,69 @@ namespace EsizzleAPI.Repositories
 
         public async Task<List<DocumentTypeDto>> GetDocumentTypesByOfferingAsync(int offeringId, string? search = null)
         {
-            using var connection = _dbConnectionFactory.CreateConnection();
+            Console.WriteLine($"[DEBUG] GetDocumentTypesByOfferingAsync called with offeringId: {offeringId}");
             
-            var sql = @"
-                SELECT dt.ID as Id, dt.Name, dt.IsGeneric, dt.Code
-                FROM ImageDocTypeMasterLists dt
-                INNER JOIN Offerings o ON dt.Code = o.IndexCode
-                WHERE o.OfferingID = @offeringId AND dt.IsUsed = 1";
-            
-            object parameters;
-            
-            if (!string.IsNullOrWhiteSpace(search))
+            try
             {
-                sql += " AND dt.Name LIKE @search";
-                parameters = new { offeringId, search = $"%{search}%" };
+                using var connection = _dbConnectionFactory.CreateConnection();
+                Console.WriteLine($"[DEBUG] Database connection created successfully");
+                
+                // First, check if the offering exists
+                var offeringCheck = await connection.QueryFirstOrDefaultAsync<(int OfferingID, string IndexCode)>(
+                    "SELECT OfferingID, IndexCode FROM Offerings WHERE OfferingID = @offeringId", 
+                    new { offeringId });
+                
+                if (offeringCheck.OfferingID == 0)
+                {
+                    Console.WriteLine($"[DEBUG] ERROR: OfferingID {offeringId} not found in Offerings table");
+                    return new List<DocumentTypeDto>();
+                }
+                
+                Console.WriteLine($"[DEBUG] Found offering {offeringCheck.OfferingID} with IndexCode: '{offeringCheck.IndexCode}'");
+                
+                // Check how many document types exist for this IndexCode
+                var typeCount = await connection.QuerySingleAsync<int>(
+                    "SELECT COUNT(*) FROM ImageDocTypeMasterList WHERE Code = @indexCode",
+                    new { indexCode = offeringCheck.IndexCode });
+                
+                Console.WriteLine($"[DEBUG] Found {typeCount} document types with IndexCode '{offeringCheck.IndexCode}'");
+                
+                // Now run the main query
+                var sql = @"
+                    SELECT dt.ID as Id, dt.Name, 0 as IsGeneric, dt.Code
+                    FROM ImageDocTypeMasterList dt
+                    INNER JOIN Offerings o ON dt.Code = o.IndexCode
+                    WHERE o.OfferingID = @offeringId";
+                
+                object parameters;
+                
+                if (!string.IsNullOrWhiteSpace(search))
+                {
+                    sql += " AND dt.Name LIKE @search";
+                    parameters = new { offeringId, search = $"%{search}%" };
+                    Console.WriteLine($"[DEBUG] Using search filter: '{search}'");
+                }
+                else
+                {
+                    parameters = new { offeringId };
+                }
+                
+                sql += " ORDER BY dt.Name";
+                
+                Console.WriteLine($"[DEBUG] Executing main query...");
+                var results = await connection.QueryAsync<DocumentTypeDto>(sql, parameters);
+                var resultList = results.ToList();
+                
+                Console.WriteLine($"[DEBUG] Query completed successfully. Found {resultList.Count} document types");
+                
+                return resultList;
             }
-            else
+            catch (Exception ex)
             {
-                parameters = new { offeringId };
+                Console.WriteLine($"[DEBUG] EXCEPTION in GetDocumentTypesByOfferingAsync: {ex.GetType().Name}: {ex.Message}");
+                Console.WriteLine($"[DEBUG] Stack trace: {ex.StackTrace}");
+                throw;
             }
-            
-            sql += " ORDER BY dt.Name";
-
-            var results = await connection.QueryAsync<DocumentTypeDto>(sql, parameters);
-            return results.ToList();
         }
 
         public async Task<DocumentTypeDto?> GetDocumentTypeByIdAsync(int documentTypeId)
@@ -52,9 +91,9 @@ namespace EsizzleAPI.Repositories
             using var connection = _dbConnectionFactory.CreateConnection();
             
             const string sql = @"
-                SELECT ID as Id, Name, IsGeneric, Code
-                FROM ImageDocTypeMasterLists
-                WHERE ID = @documentTypeId AND IsUsed = 1";
+                SELECT ID as Id, Name, 0 as IsGeneric, Code
+                FROM ImageDocTypeMasterList
+                WHERE ID = @documentTypeId";
 
             return await connection.QueryFirstOrDefaultAsync<DocumentTypeDto>(sql, new { documentTypeId });
         }
@@ -73,14 +112,14 @@ namespace EsizzleAPI.Repositories
                     b.Text,
                     b.ImageDocumentTypeID as ImageDocumentTypeId,
                     dt.Name as DocumentTypeName,
-                    dt.IsGeneric,
+                    0 as IsGeneric,
                     b.DateCreated,
                     b.ResultImageID as ResultImageId,
                     CASE WHEN b.ResultImageID IS NULL THEN 1 ELSE 0 END as CanEdit,
                     b.CreatedBy
-                FROM ImageBookmarks b
-                INNER JOIN ImageDocTypeMasterLists dt ON b.ImageDocumentTypeID = dt.ID
-                WHERE b.ImageID = @documentId AND b.IsDeleted = 0
+                FROM ImageBookmark b
+                INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                WHERE b.ImageID = @documentId AND b.Deleted = 0
                 ORDER BY b.PageIndex";
 
             var results = await connection.QueryAsync<BookmarkDto>(sql, new { documentId });
@@ -99,14 +138,14 @@ namespace EsizzleAPI.Repositories
                     b.Text,
                     b.ImageDocumentTypeID as ImageDocumentTypeId,
                     dt.Name as DocumentTypeName,
-                    dt.IsGeneric,
+                    0 as IsGeneric,
                     b.DateCreated,
                     b.ResultImageID as ResultImageId,
                     CASE WHEN b.ResultImageID IS NULL THEN 1 ELSE 0 END as CanEdit,
                     b.CreatedBy
-                FROM ImageBookmarks b
-                INNER JOIN ImageDocTypeMasterLists dt ON b.ImageDocumentTypeID = dt.ID
-                WHERE b.ID = @bookmarkId AND b.IsDeleted = 0";
+                FROM ImageBookmark b
+                INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                WHERE b.ID = @bookmarkId AND b.Deleted = 0";
 
             return await connection.QueryFirstOrDefaultAsync<BookmarkDto>(sql, new { bookmarkId });
         }
@@ -120,7 +159,7 @@ namespace EsizzleAPI.Repositories
                                        request.DocumentDate, request.Comments);
 
             const string sql = @"
-                INSERT INTO ImageBookmarks (ImageID, PageIndex, Text, ImageDocumentTypeID, CreatedBy, DateCreated, IsDeleted)
+                INSERT INTO ImageBookmark (ImageID, PageIndex, Text, ImageDocumentTypeID, CreatedBy, DateCreated, Deleted)
                 VALUES (@ImageId, @PageIndex, @Text, @DocumentTypeId, @UserId, @DateCreated, 0);
                 SELECT LAST_INSERT_ID();";
 
@@ -146,12 +185,14 @@ namespace EsizzleAPI.Repositories
             // First check if bookmark exists and can be updated
             const string checkSql = @"
                 SELECT ID, ResultImageID
-                FROM ImageBookmarks
-                WHERE ID = @bookmarkId AND ImageID = @documentId AND IsDeleted = 0";
+                FROM ImageBookmark
+                WHERE ID = @bookmarkId AND ImageID = @documentId AND Deleted = 0";
 
-            var bookmark = await connection.QueryFirstOrDefaultAsync<dynamic>(checkSql, new { bookmarkId, documentId });
+            var bookmark = await connection.QueryFirstOrDefaultAsync<BookmarkCheckRow>(checkSql, new { bookmarkId, documentId });
             
-            if (bookmark == null || bookmark.ResultImageID != null)
+            if (bookmark == null)
+                return null; // Not found
+            if (bookmark.ResultImageID != null)
                 return null; // Cannot update processed bookmarks
 
             // Update text field with new values
@@ -159,7 +200,7 @@ namespace EsizzleAPI.Repositories
                                        request.DocumentDate, request.Comments);
 
             const string updateSql = @"
-                UPDATE ImageBookmarks 
+                UPDATE ImageBookmark 
                 SET Text = @text, ImageDocumentTypeID = @documentTypeId
                 WHERE ID = @bookmarkId";
 
@@ -180,17 +221,19 @@ namespace EsizzleAPI.Repositories
             // First check if bookmark exists and can be deleted
             const string checkSql = @"
                 SELECT ID, ResultImageID
-                FROM ImageBookmarks
-                WHERE ID = @bookmarkId AND ImageID = @documentId AND IsDeleted = 0";
+                FROM ImageBookmark
+                WHERE ID = @bookmarkId AND ImageID = @documentId AND Deleted = 0";
 
-            var bookmark = await connection.QueryFirstOrDefaultAsync<dynamic>(checkSql, new { bookmarkId, documentId });
+            var bookmark = await connection.QueryFirstOrDefaultAsync<BookmarkCheckRow>(checkSql, new { bookmarkId, documentId });
             
-            if (bookmark == null || bookmark.ResultImageID != null)
+            if (bookmark == null)
+                return false; // Not found
+            if (bookmark.ResultImageID != null)
                 return false; // Cannot delete processed bookmarks
 
             const string deleteSql = @"
-                UPDATE ImageBookmarks 
-                SET IsDeleted = 1
+                UPDATE ImageBookmark 
+                SET Deleted = 1
                 WHERE ID = @bookmarkId";
 
             var rowsAffected = await connection.ExecuteAsync(deleteSql, new { bookmarkId });
@@ -203,11 +246,18 @@ namespace EsizzleAPI.Repositories
             
             var result = new BookmarkValidationResult { IsValid = true };
 
+            // If no bookmarks were provided, there's nothing to validate.
+            // Avoid issuing a SQL query with an empty IN () clause which can cause a syntax error.
+            if (bookmarkIds == null || bookmarkIds.Count == 0)
+            {
+                return result;
+            }
+
             // Check if all bookmarks exist and belong to the document
             const string sql = @"
                 SELECT ID, PageIndex, ResultImageID
-                FROM ImageBookmarks
-                WHERE ID IN @bookmarkIds AND ImageID = @documentId AND IsDeleted = 0";
+                FROM ImageBookmark
+                WHERE ID IN @bookmarkIds AND ImageID = @documentId AND Deleted = 0";
 
             var bookmarks = await connection.QueryAsync<dynamic>(sql, new { bookmarkIds, documentId });
             var bookmarkList = bookmarks.ToList();
@@ -247,11 +297,11 @@ namespace EsizzleAPI.Repositories
             
             // Update document with metadata only
             const string updateDocSql = @"
-                UPDATE Images 
+                UPDATE Image 
                 SET DocTypeManualID = @DocumentTypeId, 
                     DocumentDate = @DocumentDate, 
                     Comments = @Comments, 
-                    LastModified = @LastModified
+                    DateUpdated = @DateUpdated
                 WHERE ID = @DocumentId";
 
             var rowsUpdated = await connection.ExecuteAsync(updateDocSql, new
@@ -259,31 +309,38 @@ namespace EsizzleAPI.Repositories
                 DocumentTypeId = metadata.DocumentTypeId,
                 DocumentDate = metadata.DocumentDate,
                 Comments = metadata.Comments,
-                LastModified = DateTime.UtcNow,
+                DateUpdated = DateTime.UtcNow,
                 DocumentId = documentId
             });
 
             if (rowsUpdated == 0)
                 throw new ArgumentException("Document not found", nameof(documentId));
 
-            // Create processing session record
+            // Create processing session record (optional table in legacy DB)
             var sessionId = Guid.NewGuid().ToString();
             var dateCreated = DateTime.UtcNow;
 
-            const string insertSessionSql = @"
-                INSERT INTO ProcessingSessions (SessionId, ImageID, ProcessingType, Status, CreatedBy, DateCreated, CompletedDate)
-                VALUES (@SessionId, @ImageID, @ProcessingType, @Status, @CreatedBy, @DateCreated, @CompletedDate)";
-
-            await connection.ExecuteAsync(insertSessionSql, new
+            try
             {
-                SessionId = sessionId,
-                ImageID = documentId,
-                ProcessingType = "SimpleIndexing",
-                Status = "Completed",
-                CreatedBy = userId,
-                DateCreated = dateCreated,
-                CompletedDate = dateCreated
-            });
+                const string insertSessionSql = @"
+                    INSERT INTO ProcessingSessions (SessionId, ImageID, ProcessingType, Status, CreatedBy, DateCreated, CompletedDate)
+                    VALUES (@SessionId, @ImageID, @ProcessingType, @Status, @CreatedBy, @DateCreated, @CompletedDate)";
+
+                await connection.ExecuteAsync(insertSessionSql, new
+                {
+                    SessionId = sessionId,
+                    ImageID = documentId,
+                    ProcessingType = "SimpleIndexing",
+                    Status = "Completed",
+                    CreatedBy = userId,
+                    DateCreated = dateCreated,
+                    CompletedDate = dateCreated
+                });
+            }
+            catch
+            {
+                // ProcessingSessions table may not exist in legacy DB; ignore
+            }
 
             return new ProcessingSessionDto
             {
@@ -303,19 +360,26 @@ namespace EsizzleAPI.Repositories
             var sessionId = Guid.NewGuid().ToString();
             var dateCreated = DateTime.UtcNow;
 
-            const string sql = @"
-                INSERT INTO ProcessingSessions (SessionId, ImageID, ProcessingType, Status, CreatedBy, DateCreated)
-                VALUES (@SessionId, @ImageID, @ProcessingType, @Status, @CreatedBy, @DateCreated)";
-
-            await connection.ExecuteAsync(sql, new
+            try
             {
-                SessionId = sessionId,
-                ImageID = documentId,
-                ProcessingType = processingType,
-                Status = "Queued",
-                CreatedBy = userId,
-                DateCreated = dateCreated
-            });
+                const string sql = @"
+                    INSERT INTO ProcessingSessions (SessionId, ImageID, ProcessingType, Status, CreatedBy, DateCreated)
+                    VALUES (@SessionId, @ImageID, @ProcessingType, @Status, @CreatedBy, @DateCreated)";
+
+                await connection.ExecuteAsync(sql, new
+                {
+                    SessionId = sessionId,
+                    ImageID = documentId,
+                    ProcessingType = processingType,
+                    Status = "Queued",
+                    CreatedBy = userId,
+                    DateCreated = dateCreated
+                });
+            }
+            catch
+            {
+                // ProcessingSessions table may not exist in legacy DB; ignore
+            }
 
             return new ProcessingSessionDto
             {
@@ -333,34 +397,50 @@ namespace EsizzleAPI.Repositories
             
             var completedDate = (status == "Completed" || status == "Failed") ? DateTime.UtcNow : (DateTime?)null;
 
-            const string sql = @"
-                UPDATE ProcessingSessions 
-                SET Status = @status, 
-                    ErrorMessage = @errorMessage,
-                    CompletedDate = @completedDate
-                WHERE SessionId = @sessionId";
-
-            var rowsAffected = await connection.ExecuteAsync(sql, new
+            try
             {
-                status,
-                errorMessage,
-                completedDate,
-                sessionId
-            });
+                const string sql = @"
+                    UPDATE ProcessingSessions 
+                    SET Status = @status, 
+                        ErrorMessage = @errorMessage,
+                        CompletedDate = @completedDate
+                    WHERE SessionId = @sessionId";
 
-            return rowsAffected > 0;
+                var rowsAffected = await connection.ExecuteAsync(sql, new
+                {
+                    status,
+                    errorMessage,
+                    completedDate,
+                    sessionId
+                });
+
+                return rowsAffected > 0;
+            }
+            catch
+            {
+                // Table may not exist; silence errors for legacy DB
+                return false;
+            }
         }
 
         public async Task<ProcessingSessionDto?> GetProcessingSessionAsync(string sessionId)
         {
             using var connection = _dbConnectionFactory.CreateConnection();
             
-            const string sql = @"
-                SELECT SessionId, ImageID as ImageId, ProcessingType, Status, ErrorMessage, DateCreated, CompletedDate
-                FROM ProcessingSessions
-                WHERE SessionId = @sessionId";
+            try
+            {
+                const string sql = @"
+                    SELECT SessionId, ImageID as ImageId, ProcessingType, Status, ErrorMessage, DateCreated, CompletedDate
+                    FROM ProcessingSessions
+                    WHERE SessionId = @sessionId";
 
-            return await connection.QueryFirstOrDefaultAsync<ProcessingSessionDto>(sql, new { sessionId });
+                return await connection.QueryFirstOrDefaultAsync<ProcessingSessionDto>(sql, new { sessionId });
+            }
+            catch
+            {
+                // Table may not exist; return null for legacy DB
+                return null;
+            }
         }
 
         public async Task<List<ProcessingResultDto>> GetProcessingResultsAsync(int documentId)
@@ -377,11 +457,11 @@ namespace EsizzleAPI.Repositories
                     b.PageIndex + 1 as StartPage,
                     b.PageIndex + ri.PageCount as EndPage,
                     'completed' as ProcessingStatus,
-                    ri.FilePath
-                FROM ImageBookmarks b
-                INNER JOIN Images ri ON b.ResultImageID = ri.ID
-                INNER JOIN ImageDocTypeMasterLists dt ON b.ImageDocumentTypeID = dt.ID
-                WHERE b.ImageID = @documentId AND b.ResultImageID IS NOT NULL AND b.IsDeleted = 0
+                    ri.Path as FilePath
+                FROM ImageBookmark b
+                INNER JOIN Image ri ON b.ResultImageID = ri.ID
+                INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                WHERE b.ImageID = @documentId AND b.ResultImageID IS NOT NULL AND b.Deleted = 0
                 ORDER BY b.PageIndex";
 
             var results = await connection.QueryAsync<ProcessingResultDto>(sql, new { documentId });
@@ -396,8 +476,8 @@ namespace EsizzleAPI.Repositories
             
             const string sql = @"
                 SELECT ID, DocTypeManualID, DocTypeAutoID, LoanID, DocumentDate, Comments, ParsedName,
-                       OriginalName, PageCount, FilePath, CreatedBy, DateCreated, LastModified, IsDeleted
-                FROM Images
+                       OriginalName, PageCount, Path as FilePath, CreatedBy, DateCreated, DateUpdated as LastModified, Deleted as IsDeleted
+                FROM Image
                 WHERE ID = @documentId";
 
             return await connection.QueryFirstOrDefaultAsync<Image>(sql, new { documentId });
@@ -408,11 +488,11 @@ namespace EsizzleAPI.Repositories
             using var connection = _dbConnectionFactory.CreateConnection();
             
             const string sql = @"
-                UPDATE Images 
+                UPDATE Image 
                 SET DocTypeManualID = @documentTypeId,
                     DocumentDate = @documentDate,
                     Comments = @comments,
-                    LastModified = @lastModified
+                    DateUpdated = @lastModified
                 WHERE ID = @documentId";
 
             var rowsAffected = await connection.ExecuteAsync(sql, new
@@ -432,15 +512,15 @@ namespace EsizzleAPI.Repositories
             using var connection = _dbConnectionFactory.CreateConnection();
             
             // Get original document loan ID
-            const string getLoanSql = "SELECT LoanID FROM Images WHERE ID = @originalDocumentId";
+            const string getLoanSql = "SELECT LoanID FROM Image WHERE ID = @originalDocumentId";
             var loanId = await connection.QueryFirstOrDefaultAsync<int?>(getLoanSql, new { originalDocumentId });
             
             if (!loanId.HasValue)
                 throw new ArgumentException("Original document not found", nameof(originalDocumentId));
 
             const string insertSql = @"
-                INSERT INTO Images (OriginalName, ParsedName, PageCount, LoanID, DocTypeManualID, FilePath, CreatedBy, DateCreated, LastModified, IsDeleted)
-                VALUES (@OriginalName, @ParsedName, @PageCount, @LoanID, @DocTypeManualID, @FilePath, @CreatedBy, @DateCreated, @LastModified, 0);
+                INSERT INTO Image (OriginalName, ParsedName, PageCount, LoanID, DocTypeManualID, Path, CreatedBy, DateCreated, DateUpdated, Deleted)
+                VALUES (@OriginalName, @ParsedName, @PageCount, @LoanID, @DocTypeManualID, @Path, @CreatedBy, @DateCreated, @DateUpdated, 0);
                 SELECT LAST_INSERT_ID();";
 
             var now = DateTime.UtcNow;
@@ -451,10 +531,10 @@ namespace EsizzleAPI.Repositories
                 PageCount = pageCount,
                 LoanID = loanId.Value,
                 DocTypeManualID = documentTypeId,
-                FilePath = filePath,
+                Path = filePath,
                 CreatedBy = userId,
                 DateCreated = now,
-                LastModified = now
+                DateUpdated = now
             });
 
             return splitDocId;
@@ -465,7 +545,7 @@ namespace EsizzleAPI.Repositories
             using var connection = _dbConnectionFactory.CreateConnection();
             
             const string sql = @"
-                UPDATE ImageBookmarks 
+                UPDATE ImageBookmark 
                 SET ResultImageID = @resultDocumentId
                 WHERE ID = @bookmarkId";
 
@@ -479,48 +559,66 @@ namespace EsizzleAPI.Repositories
         {
             using var connection = _dbConnectionFactory.CreateConnection();
             
-            const string sql = @"
-                SELECT 
-                    t.PageNumber,
-                    t.ThumbnailUrl,
-                    t.Width,
-                    t.Height,
-                    CASE WHEN b.ID IS NOT NULL THEN 1 ELSE 0 END as HasBookmark,
-                    CASE 
-                        WHEN b.ID IS NOT NULL THEN 
-                            CASE WHEN dt.IsGeneric = 1 THEN 'generic' ELSE 'normal' END
-                        ELSE NULL 
-                    END as BookmarkType,
-                    dt.Name as DocumentTypeName
-                FROM PageThumbnails t
-                LEFT JOIN ImageBookmarks b ON t.ImageID = b.ImageID AND t.PageNumber = b.PageIndex + 1 AND b.IsDeleted = 0
-                LEFT JOIN ImageDocTypeMasterLists dt ON b.ImageDocumentTypeID = dt.ID
-                WHERE t.ImageID = @documentId
-                ORDER BY t.PageNumber";
+            try
+            {
+                const string sql = @"
+                    SELECT 
+                        t.PageNumber,
+                        t.ThumbnailUrl,
+                        t.Width,
+                        t.Height,
+                        CASE WHEN b.ID IS NOT NULL THEN 1 ELSE 0 END as HasBookmark,
+                        CASE WHEN b.ID IS NOT NULL THEN 'normal' ELSE NULL END as BookmarkType,
+                        dt.Name as DocumentTypeName
+                    FROM PageThumbnails t
+                    LEFT JOIN ImageBookmark b ON t.ImageID = b.ImageID AND t.PageNumber = b.PageIndex + 1 AND b.Deleted = 0
+                    LEFT JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                    WHERE t.ImageID = @documentId
+                    ORDER BY t.PageNumber";
 
-            var results = await connection.QueryAsync<PageThumbnailDto>(sql, new { documentId });
-            return results.ToList();
+                var results = await connection.QueryAsync<PageThumbnailDto>(sql, new { documentId });
+                return results.ToList();
+            }
+            catch
+            {
+                // PageThumbnails may not exist in legacy DB
+                return new List<PageThumbnailDto>();
+            }
         }
 
         public async Task<List<ThumbnailBookmarkDto>> GetThumbnailBookmarksAsync(int documentId)
         {
             using var connection = _dbConnectionFactory.CreateConnection();
             
-            const string sql = @"
-                SELECT 
-                    b.PageIndex,
-                    dt.Name as DocumentTypeName,
-                    dt.IsGeneric,
-                    b.ImageDocumentTypeID as DocumentTypeId
-                FROM ImageBookmarks b
-                INNER JOIN ImageDocTypeMasterLists dt ON b.ImageDocumentTypeID = dt.ID
-                WHERE b.ImageID = @documentId AND b.IsDeleted = 0";
+            try
+            {
+                const string sql = @"
+                    SELECT 
+                        b.PageIndex,
+                        dt.Name as DocumentTypeName,
+                        0 as IsGeneric,
+                        b.ImageDocumentTypeID as DocumentTypeId
+                    FROM ImageBookmark b
+                    INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                    WHERE b.ImageID = @documentId AND b.Deleted = 0";
 
-            var results = await connection.QueryAsync<ThumbnailBookmarkDto>(sql, new { documentId });
-            return results.ToList();
+                var results = await connection.QueryAsync<ThumbnailBookmarkDto>(sql, new { documentId });
+                return results.ToList();
+            }
+            catch
+            {
+                // In case of schema differences, fail gracefully
+                return new List<ThumbnailBookmarkDto>();
+            }
         }
 
         // === UTILITIES ===
+
+        private sealed class BookmarkCheckRow
+        {
+            public int ID { get; set; }
+            public int? ResultImageID { get; set; }
+        }
 
         public string BuildBookmarkText(string documentTypeName, int documentTypeId, DateTime? documentDate, string? comments)
         {

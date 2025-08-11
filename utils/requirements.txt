@@ -1,0 +1,18 @@
+# S3 Copy Utility Requirements
+# For copying S3 files between buckets
+
+# AWS services
+boto3>=1.34.0
+botocore>=1.34.0
+
+# Database connectivity  
+PyMySQL>=1.1.0
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# HTTP client (required by lambda utils)
+aiohttp>=3.8.0
+
+# Utilities
+python-dateutil>=2.8.0

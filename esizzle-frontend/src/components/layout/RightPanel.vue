@@ -190,7 +190,7 @@
     <!-- Document Indexing Section (when document is selected) -->
     <div v-if="mainStore.selectedDocument" class="border-t border-gray-200 flex-1 flex flex-col">
       <!-- Indexing Toolbar -->
-      <div class="border-b border-gray-200 bg-gray-50">
+      <div class="border-b border-gray-200 bg-gray-50 max-h-80 min-h-0 flex flex-col">
         <IndexingToolbar
           :selected-document="mainStore.selectedDocument"
           :available-document-types="indexingStore.availableDocumentTypes"
@@ -210,7 +210,7 @@
         <!-- Document Indexing Information -->
         <div class="flex-1 bg-white border-t border-gray-200 min-h-0">
           <div class="p-3 border-b border-gray-200 bg-gray-50">
-            <h3 class="text-sm font-medium text-gray-700">Document Indexing</h3>
+            <h3 class="text-sm font-medium text-gray-700">Indexes</h3>
           </div>
           
           <!-- Document Type Information -->
@@ -261,7 +261,7 @@
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed, watch, onMounted } from 'vue'
 import { useMainStore } from '@/stores/main'
 import IndexingToolbar from '@/components/indexing/IndexingToolbar.vue'
 import { useIndexingStore } from '@/stores/indexing'
@@ -439,6 +439,28 @@ const handleNavigateToBookmark = (bookmark: any) => {
   // Navigate to the bookmark's page
   mainStore.currentPage = bookmark.pageIndex + 1 // Convert from 0-based to 1-based
 }
+
+// Load document types and bookmarks on mount and when selection changes
+onMounted(() => {
+  if (mainStore.selectedOffering) {
+    indexingStore.loadDocumentTypesForOffering(mainStore.selectedOffering.offeringId)
+  }
+  if (mainStore.selectedDocument) {
+    indexingStore.loadBookmarksForDocument(mainStore.selectedDocument.id)
+  }
+})
+
+watch(() => mainStore.selectedOffering?.offeringId, (offeringId) => {
+  if (offeringId) {
+    indexingStore.loadDocumentTypesForOffering(offeringId)
+  }
+})
+
+watch(() => mainStore.selectedDocument?.id, (docId) => {
+  if (docId) {
+    indexingStore.loadBookmarksForDocument(docId)
+  }
+})
 </script>
 
 <style scoped>

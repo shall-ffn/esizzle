@@ -17,6 +17,50 @@ import type {
  */
 export const indexingApi = {
   
+  // === MAPPERS ===
+  
+  _normalizeStatus(status: string): ProcessingSessionDto['status'] {
+    const s = (status || '').toLowerCase()
+    if (s === 'failed' || s === 'error') return 'error'
+    if (s === 'completed' || s === 'complete' || s === 'done') return 'completed'
+    if (s === 'processing' || s === 'inprogress' || s === 'in_progress') return 'processing'
+    return 'queued'
+  },
+  
+  _mapBackendSession(b: any): ProcessingSessionDto {
+    return {
+      sessionId: b.sessionId || b.SessionId,
+      status: this._normalizeStatus(b.status || b.Status),
+      documentId: b.documentId ?? b.imageId ?? b.ImageId,
+      progress: b.progress ?? undefined,
+      message: b.message ?? undefined,
+      error: b.error ?? b.ErrorMessage ?? undefined
+    }
+  },
+  
+  _mapBackendResult(r: any): ProcessingResultDto {
+    const statusRaw = r.processingStatus || r.ProcessingStatus
+    const normalized = this._normalizeStatus(statusRaw)
+    const processingStatus: ProcessingResultDto['processingStatus'] = normalized === 'error'
+      ? 'error'
+      : normalized === 'completed'
+        ? 'completed'
+        : 'pending'
+    return {
+      originalImageId: r.originalImageId ?? r.OriginalImageId,
+      resultImageId: r.resultImageId ?? r.ResultImageId,
+      documentName: r.documentName ?? r.DocumentName,
+      documentType: r.documentType ?? r.DocumentType,
+      pageCount: r.pageCount ?? r.PageCount,
+      pageRange: [
+        r.startPage ?? r.StartPage ?? 0,
+        r.endPage ?? r.EndPage ?? 0
+      ],
+      processingStatus,
+      filePath: r.filePath ?? r.FilePath ?? undefined
+    }
+  },
+  
   // === DOCUMENT TYPES ===
   
   /**
@@ -69,28 +113,32 @@ export const indexingApi = {
    * Save image data only (no bookmarks)
    */
   async saveImageData(documentId: number, metadata: DocumentMetadata): Promise<ProcessingSessionDto> {
-    return await apiClient.post(`/api/documents/${documentId}/save-image-data`, metadata)
+    const backend = await apiClient.post(`/api/documents/${documentId}/save-image-data`, metadata)
+    return this._mapBackendSession(backend)
   },
   
   /**
    * Process bookmarks (rename or split)
    */
   async processBookmarks(documentId: number, request: ProcessBookmarksRequest): Promise<ProcessingSessionDto> {
-    return await apiClient.post(`/api/documents/${documentId}/process-bookmarks`, request)
+    const backend = await apiClient.post(`/api/documents/${documentId}/process-bookmarks`, request)
+    return this._mapBackendSession(backend)
   },
   
   /**
    * Get processing session status
    */
   async getProcessingStatus(sessionId: string): Promise<ProcessingSessionDto> {
-    return await apiClient.get(`/api/processing/${sessionId}/status`)
+    const backend = await apiClient.get(`/api/documents/processing/${sessionId}/status`)
+    return this._mapBackendSession(backend)
   },
   
   /**
    * Get processing results for a document
    */
   async getProcessingResults(documentId: number): Promise<ProcessingResultDto[]> {
-    return await apiClient.get(`/api/documents/${documentId}/processing-results`)
+    const backend = await apiClient.get(`/api/documents/${documentId}/processing-results`)
+    return Array.isArray(backend) ? backend.map((r: any) => this._mapBackendResult(r)) : []
   },
   
   // === THUMBNAILS ===

@@ -104,11 +104,11 @@ public interface IS3DocumentService
     Task<Dictionary<ImageStatusTypeEnum, bool>> CheckDocumentExistenceAsync(DocumentModel document);
 
     /// <summary>
-    /// Get environment-aware bucket name from BucketPrefix
+    /// Get environment-specific bucket name
     /// </summary>
-    /// <param name="bucketPrefix">Bucket prefix from document</param>
-    /// <returns>Full bucket name with environment path if applicable</returns>
-    string GetEnvironmentBucketName(string? bucketPrefix);
+    /// <param name="bucketPrefix">Legacy parameter for compatibility (no longer used in bucket name)</param>
+    /// <returns>Environment-specific bucket name</returns>
+    string GetEnvironmentBucketName(string? bucketPrefix = null);
 }
 
 public class S3DocumentMetadata

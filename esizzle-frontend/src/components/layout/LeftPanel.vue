@@ -130,14 +130,27 @@
       </div>
 
       <!-- Tab Content -->
-      <div class="p-3 h-24 overflow-y-auto">
+      <div class="p-3 h-48 overflow-y-auto">
         <!-- Bookmarks Tab -->
         <div v-if="activeTab === 'bookmarks'" class="text-xs text-gray-600">
           <div v-if="!mainStore.selectedDocument">
             Select a document to view bookmarks
           </div>
-          <div v-else>
-            No bookmarks for this document
+          <div v-else class="mt-2">
+            <BookmarksList
+              :bookmarks="indexingStore.pendingBookmarks"
+              :current-page="mainStore.currentPage"
+              :editable="true"
+              :loading="indexingStore.bookmarksLoading"
+              :available-document-types="indexingStore.availableDocumentTypes"
+              :processing-results="indexingStore.processingResults"
+              :selected-bookmark-id="indexingStore.selectedBookmarkId"
+              @bookmark-selected="indexingStore.selectBookmark"
+              @navigate-to-page="handleNavigateToPage"
+              @bookmark-updated="handleBookmarkUpdated"
+              @bookmark-deleted="indexingStore.deleteBookmark"
+              @clear-all-bookmarks="indexingStore.clearAllBookmarks"
+            />
           </div>
         </div>
 
@@ -184,8 +197,11 @@ import {
   CheckIcon,
   ExclamationTriangleIcon
 } from '@heroicons/vue/24/outline'
+import BookmarksList from '@/components/indexing/BookmarksList.vue'
+import { useIndexingStore } from '@/stores/indexing'
 
 const mainStore = useMainStore()
+const indexingStore = useIndexingStore()
 
 // Local search state
 const imageSearchTerm = ref('')
@@ -212,6 +228,18 @@ const filteredDocuments = computed(() => {
     doc.comments?.toLowerCase().includes(searchTerm)
   )
 })
+
+/*
+ * Bookmarks handlers
+ */
+const handleBookmarkUpdated = (bookmarkId: number, updates: any) => {
+  indexingStore.updateBookmark(bookmarkId, updates)
+}
+
+const handleNavigateToPage = (pageIndex: number) => {
+  // incoming pageIndex is 0-based from BookmarksList
+  mainStore.goToPage(pageIndex + 1)
+}
 
 // Handle image search input
 const handleImageSearch = () => {
