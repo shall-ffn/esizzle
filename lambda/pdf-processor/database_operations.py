@@ -87,7 +87,7 @@ def get_db_connection():
             logger.debug("Database connection closed")
 
 def create_image_record(source_document_id: int, split_range: Dict[str, Any], 
-                       s3_key: str, filename: str, page_count: int, 
+                       s3_key: Optional[str], filename: Optional[str], page_count: int, 
                        metadata: Dict[str, Any]) -> int:
     """
     Create new Image record for split document
@@ -110,9 +110,9 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
         with get_db_connection() as conn:
             cursor = conn.cursor()
             
-            # First, get loan ID from source document
+            # First, get loan ID and original name from source document
             cursor.execute("""
-                SELECT LoanID, BucketPrefix 
+                SELECT LoanID, OriginalName 
                 FROM Image 
                 WHERE ID = %s
             """, (source_document_id,))
@@ -122,7 +122,7 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                 raise DatabaseError(f"Source document {source_document_id} not found")
             
             loan_id = source_info['LoanID']
-            bucket_prefix = source_info['BucketPrefix']
+            original_name = source_info['OriginalName']
             
             # Create new Image record
             insert_sql = """
@@ -134,13 +134,12 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                     OriginalName,
                     PageCount,
                     Path,
-                    BucketPrefix,
                     CreatedBy,
                     DateCreated,
                     DateUpdated,
                     Deleted
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """
             
@@ -158,10 +157,9 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                 split_range.get('documentTypeId'),          # DocTypeManualID
                 document_date,                              # DocumentDate
                 split_range.get('comments'),                # Comments
-                filename,                                   # OriginalName
+                original_name,                              # OriginalName (from source document)  
                 page_count,                                 # PageCount
-                s3_key,                                     # Path (S3 key)
-                bucket_prefix,                              # BucketPrefix
+                s3_key,                                     # Path (S3 key, can be None initially)
                 metadata.get('userId', 1),                  # CreatedBy
                 datetime.now(timezone.utc),                 # DateCreated
                 datetime.now(timezone.utc),                 # DateUpdated
@@ -179,6 +177,89 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
     except Exception as e:
         logger.error(f"Failed to create Image record: {e}")
         raise DatabaseError(f"Failed to create Image record: {e}")
+
+def update_image_record_s3_info(image_id: int, s3_key: str, filename: str) -> None:
+    """
+    Update Image record with S3 information after upload
+    
+    Args:
+        image_id: Image record ID to update
+        s3_key: S3 key where PDF is stored
+        filename: Final filename
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Update Image record with S3 details
+            update_sql = """
+                UPDATE Image 
+                SET Path = %s, OriginalName = %s, DateUpdated = %s
+                WHERE ID = %s
+            """
+            
+            values = (
+                s3_key,                          # Path (S3 key)
+                filename,                        # OriginalName
+                datetime.now(timezone.utc),      # DateUpdated
+                image_id                         # ID
+            )
+            
+            cursor.execute(update_sql, values)
+            
+            if cursor.rowcount == 0:
+                raise DatabaseError(f"No Image record found with ID {image_id}")
+            
+            conn.commit()
+            
+            logger.info(f"Updated Image record {image_id} with S3 info: {s3_key}")
+            
+    except Exception as e:
+        logger.error(f"Failed to update Image record {image_id}: {e}")
+        raise DatabaseError(f"Failed to update Image record: {e}")
+
+def mark_original_document_obsolete(document_id: int) -> None:
+    """
+    Mark the original document as Obsolete after successful splitting
+    
+    Args:
+        document_id: Original document ID to mark as obsolete
+        
+    Raises:
+        DatabaseError: If database operation fails
+    """
+    try:
+        with get_db_connection() as conn:
+            cursor = conn.cursor()
+            
+            # Update original document status to Obsolete (7)
+            update_sql = """
+                UPDATE Image 
+                SET ImageStatusTypeID = %s, DateUpdated = %s
+                WHERE ID = %s
+            """
+            
+            values = (
+                7,                               # ImageStatusTypeID = 7 (Obsolete)
+                datetime.now(timezone.utc),      # DateUpdated
+                document_id                      # ID
+            )
+            
+            cursor.execute(update_sql, values)
+            
+            if cursor.rowcount == 0:
+                raise DatabaseError(f"No Image record found with ID {document_id}")
+            
+            conn.commit()
+            
+            logger.info(f"Marked original document {document_id} as Obsolete after splitting")
+            
+    except Exception as e:
+        logger.error(f"Failed to mark document {document_id} as obsolete: {e}")
+        raise DatabaseError(f"Failed to mark document as obsolete: {e}")
 
 def update_bookmark_with_result(bookmark_id: int, result_image_id: int) -> bool:
     """

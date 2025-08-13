@@ -28,8 +28,13 @@ from s3_operations import (
     cleanup_partial_uploads, verify_s3_access
 )
 from database_operations import (
-    create_image_record, update_bookmark_with_result, update_database_records,
-    get_document_info, validate_database_connection
+    get_db_connection, 
+    create_image_record, 
+    update_image_record_s3_info,
+    mark_original_document_obsolete,
+    update_bookmark_with_result,
+    create_processing_session,
+    update_processing_session_status
 )
 from api_callbacks import (
     update_processing_status, link_processing_results, 
@@ -197,7 +202,7 @@ def process_document_splitting(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     update_processing_status(payload['sessionId'], 'processing', progress=20,
                             message='Downloading source PDF...')
     
-    source_pdf_data = download_pdf_from_s3(document_id, metadata.get('bucketPrefix', 'default'))
+    source_pdf_data = download_pdf_from_s3(document_id)
     
     # Step 2: Load and validate PDF
     update_processing_status(payload['sessionId'], 'processing', progress=30,
@@ -234,6 +239,12 @@ def process_document_splitting(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     # Step 5: Update database with results
     update_database_records(document_id, bookmarks, results)
+    
+    # Step 6: Mark original document as Obsolete (per Hydra DD design)
+    update_processing_status(payload['sessionId'], 'processing', progress=90,
+                            message='Marking original document as obsolete...')
+    
+    mark_original_document_obsolete(document_id)
     
     logger.info(f"Document splitting completed for document {document_id}")
     return results
@@ -355,23 +366,24 @@ def process_single_split(pdf_reader: PyPDF2.PdfReader, split_range: Dict[str, An
         split_pdf_data = output_stream.getvalue()
         output_stream.close()
         
-        # Generate unique filename for split
-        split_sequence = start_page + 1  # 1-based sequence
-        split_filename = f"{source_document_id}_split_{split_sequence}.pdf"
-        
-        # Upload to S3
-        bucket_prefix = metadata.get('bucketPrefix', 'default')
-        s3_key = upload_split_to_s3(split_pdf_data, split_filename, bucket_prefix)
-        
-        # Create new database record
+        # Create new database record FIRST to get the new image ID
         new_image_id = create_image_record(
             source_document_id=source_document_id,
             split_range=split_range,
-            s3_key=s3_key,
-            filename=split_filename,
+            s3_key=None,  # Will update after upload
+            filename=None,  # Will update after upload
             page_count=end_page - start_page + 1,
             metadata=metadata
         )
+        
+        # Generate filename using the NEW image ID
+        split_filename = f"{new_image_id}.pdf"
+        
+        # Upload to S3 with proper filename
+        s3_key = upload_split_to_s3(split_pdf_data, split_filename)
+        
+        # Update database record with S3 details
+        update_image_record_s3_info(new_image_id, s3_key, split_filename)
         
         return {
             'originalImageId': source_document_id,

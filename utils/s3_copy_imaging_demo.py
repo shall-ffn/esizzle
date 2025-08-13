@@ -79,12 +79,13 @@ class S3CopyUtility:
             'total_bytes': 0
         }
     
-    def get_imaging_demo_documents(self, offering_name: str = "ImagingDemo") -> List[Dict[str, Any]]:
+    def get_imaging_demo_documents(self, offering_id: int = 302, asset_no: Optional[int] = None) -> List[Dict[str, Any]]:
         """
-        Get all documents for the ImagingDemo offering from the database
+        Get all documents for the specified offering from the database
         
         Args:
-            offering_name: Name of the offering to filter by
+            offering_id: ID of the offering to filter by (default: 302 for ImagingDemo)
+            asset_no: Optional asset number to filter by for targeted copying
             
         Returns:
             List of document records with Image and Path information
@@ -98,8 +99,8 @@ class S3CopyUtility:
                             i.ID as ImageId,
                             i.LoanID,
                             i.Path,
-                            i.ImageStatusTypeId,
                             i.OriginalName,
+                            i.OriginalExt,
                             o.OfferingName,
                             s.sale_desc as SaleName
                         FROM Image i
@@ -108,45 +109,62 @@ class S3CopyUtility:
                         INNER JOIN Auction a ON s.sale_id = a.Loanmaster_Sale_ID
                         INNER JOIN OfferingAuctions oa ON a.AuctionID = oa.AuctionID
                         INNER JOIN Offerings o ON oa.OfferingID = o.OfferingID
-                        WHERE o.OfferingName = %s 
+                        WHERE o.OfferingID = %s 
                         AND i.Deleted = 0
-                        AND i.Path IS NOT NULL
-                        AND i.Path != ''
+                    """
+                    
+                    # Build dynamic query based on parameters
+                    params = [offering_id]
+                    
+                    if asset_no is not None:
+                        query += " AND l.ASSET_NO = %s"
+                        params.append(asset_no)
+                    
+                    query += """
                         ORDER BY i.ID
                         LIMIT 100
                     """
                     
-                    cursor.execute(query, (offering_name,))
+                    cursor.execute(query, tuple(params))
                     documents = cursor.fetchall()
                     
-                    logger.info(f"Found {len(documents)} documents for offering '{offering_name}'")
+                    if asset_no:
+                        logger.info(f"Found {len(documents)} documents for offering ID '{offering_id}', asset '{asset_no}'")
+                    else:
+                        logger.info(f"Found {len(documents)} documents for offering ID '{offering_id}'")
                     self.stats['found_documents'] = len(documents)
                     
                     return documents
                     
         except Exception as e:
-            logger.error(f"Error querying documents for offering '{offering_name}': {e}")
+            if asset_no:
+                logger.error(f"Error querying documents for offering ID '{offering_id}', asset '{asset_no}': {e}")
+            else:
+                logger.error(f"Error querying documents for offering ID '{offering_id}': {e}")
             return []
     
     def construct_s3_paths(self, document: Dict[str, Any]) -> Dict[str, str]:
         """
-        Construct S3 paths for IOriginal and IProcessing
+        Construct S3 paths for IOriginal and IProcessing files based on document info
         
         Args:
-            document: Document record from database
+            document: Document record from database with ImageId and other metadata
             
         Returns:
-            Dictionary with IOriginal and IProcessing S3 paths
+            Dictionary with 'original' and 'processing' S3 key paths
         """
         image_id = document['ImageId']
+        original_ext = document.get('OriginalExt', '.pdf')  # Default to .pdf if not found
         
-        # Construct paths using environment-only bucket structure (no BucketPrefix)
-        paths = {
-            'IOriginal': f"IOriginal/Images/{image_id}.pdf",
-            'IProcessing': f"IProcessing/Images/{image_id}.pdf"
+        # Construct S3 paths using environment-only bucket approach
+        # IOriginal: Uses the actual OriginalExt from database
+        # IProcessing: Always uses .pdf (processed files are converted to PDF)
+        s3_paths = {
+            'original': f"IOriginal/Images/{image_id}{original_ext}",
+            'processing': f"IProcessing/Images/{image_id}.pdf"
         }
         
-        return paths
+        return s3_paths
     
     def file_exists_in_s3(self, bucket: str, key: str) -> bool:
         """Check if a file exists in S3"""
@@ -213,23 +231,30 @@ class S3CopyUtility:
             self.stats['failed_files'] += 1
             return False
     
-    def copy_imaging_demo_files(self, offering_name: str = "ImagingDemo") -> None:
+    def copy_imaging_demo_files(self, offering_id: int = 302, asset_no: Optional[int] = None) -> None:
         """
-        Main method to copy all ImagingDemo files from source to destination bucket
+        Main method to copy all files from source to destination bucket for specified offering
         
         Args:
-            offering_name: Name of the offering to copy files for
+            offering_id: ID of the offering to copy files for (default: 302 for ImagingDemo)
+            asset_no: Optional asset number to filter by for targeted copying
         """
-        logger.info(f"Starting S3 copy operation for offering: {offering_name}")
+        if asset_no:
+            logger.info(f"Starting S3 copy operation for offering ID: {offering_id}, asset: {asset_no}")
+        else:
+            logger.info(f"Starting S3 copy operation for offering ID: {offering_id}")
         logger.info(f"Source bucket: {self.source_bucket}")
         logger.info(f"Destination bucket: {self.dest_bucket}")
         logger.info(f"Dry run mode: {self.dry_run}")
         
         # Get documents for the offering
-        documents = self.get_imaging_demo_documents(offering_name)
+        documents = self.get_imaging_demo_documents(offering_id, asset_no)
         
         if not documents:
-            logger.warning(f"No documents found for offering '{offering_name}'")
+            if asset_no:
+                logger.warning(f"No documents found for offering ID '{offering_id}', asset '{asset_no}'")
+            else:
+                logger.warning(f"No documents found for offering ID '{offering_id}'")
             return
         
         # Process each document
@@ -244,10 +269,10 @@ class S3CopyUtility:
             s3_paths = self.construct_s3_paths(doc)
             
             # Copy IOriginal file
-            original_success = self.copy_s3_file(s3_paths['IOriginal'], s3_paths['IOriginal'])
+            original_success = self.copy_s3_file(s3_paths['original'], s3_paths['original'])
             
             # Copy IProcessing file  
-            processing_success = self.copy_s3_file(s3_paths['IProcessing'], s3_paths['IProcessing'])
+            processing_success = self.copy_s3_file(s3_paths['processing'], s3_paths['processing'])
             
             if original_success or processing_success:
                 logger.info(f"Document {image_id}: Original={'✓' if original_success else '✗'}, Processing={'✓' if processing_success else '✗'}")
@@ -271,7 +296,8 @@ def main():
     """Main entry point"""
     parser = argparse.ArgumentParser(description="Copy S3 files for ImagingDemo offering")
     parser.add_argument('--dry-run', action='store_true', help='Show what would be copied without actually copying')
-    parser.add_argument('--offering-name', default='ImagingDemo', help='Name of the offering to copy files for')
+    parser.add_argument('--offering-id', type=int, default=302, help='ID of the offering to copy files for (default: 302 for ImagingDemo)')
+    parser.add_argument('--asset-no', type=int, help='Optional asset number to filter by for targeted copying')
     parser.add_argument('--source-bucket', default='ffncorp.com', help='Source S3 bucket')
     parser.add_argument('--dest-bucket', default='ffncorp.com-dev-db-cluster', help='Destination S3 bucket')
     
@@ -286,7 +312,7 @@ def main():
     
     # Perform the copy operation
     try:
-        copy_utility.copy_imaging_demo_files(args.offering_name)
+        copy_utility.copy_imaging_demo_files(args.offering_id, args.asset_no)
     except KeyboardInterrupt:
         logger.info("Operation cancelled by user")
     except Exception as e:

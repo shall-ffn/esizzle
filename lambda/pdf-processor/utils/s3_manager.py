@@ -40,21 +40,19 @@ class S3Manager:
             logger.error(f"S3 connection test failed: {e}")
             return False
     
-    def download_file(self, s3_key: str, bucket_prefix: str = '') -> Optional[bytes]:
+    def download_file(self, s3_key: str) -> Optional[bytes]:
         """
         Download a file from S3
         
         Args:
             s3_key: S3 object key (path to file)
-            bucket_prefix: Optional bucket prefix for organization
             
         Returns:
             File content as bytes or None if failed
         """
         
-        # Construct full S3 key
-        full_key = f"{bucket_prefix}/{s3_key}" if bucket_prefix else s3_key
-        full_key = full_key.strip('/')  # Remove leading/trailing slashes
+        # Use s3_key directly
+        full_key = s3_key.strip('/')  # Remove leading/trailing slashes
         
         try:
             logger.info(f"Downloading from S3: s3://{self.bucket_name}/{full_key}")
@@ -81,7 +79,7 @@ class S3Manager:
             logger.error(f"Unexpected error downloading {full_key}: {e}")
             return None
     
-    def upload_file(self, file_content: bytes, s3_key: str, bucket_prefix: str = '', 
+    def upload_file(self, file_content: bytes, s3_key: str, 
                    content_type: str = 'application/pdf') -> bool:
         """
         Upload a file to S3
@@ -89,15 +87,14 @@ class S3Manager:
         Args:
             file_content: File content as bytes
             s3_key: S3 object key (path to file)
-            bucket_prefix: Optional bucket prefix for organization
             content_type: MIME type of the file
             
         Returns:
             True if successful, False otherwise
         """
         
-        # Construct full S3 key
-        full_key = f"{bucket_prefix}/{s3_key}" if bucket_prefix else s3_key
+        # Use s3_key directly
+        full_key = s3_key
         full_key = full_key.strip('/')  # Remove leading/trailing slashes
         
         try:
@@ -126,21 +123,19 @@ class S3Manager:
             logger.error(f"Unexpected error uploading {full_key}: {e}")
             return False
     
-    def file_exists(self, s3_key: str, bucket_prefix: str = '') -> bool:
+    def file_exists(self, s3_key: str) -> bool:
         """
         Check if a file exists in S3
         
         Args:
             s3_key: S3 object key (path to file)
-            bucket_prefix: Optional bucket prefix for organization
             
         Returns:
             True if file exists, False otherwise
         """
         
-        # Construct full S3 key
-        full_key = f"{bucket_prefix}/{s3_key}" if bucket_prefix else s3_key
-        full_key = full_key.strip('/')  # Remove leading/trailing slashes
+        # Use s3_key directly
+        full_key = s3_key.strip('/')  # Remove leading/trailing slashes
         
         try:
             self.s3_client.head_object(
@@ -161,24 +156,21 @@ class S3Manager:
             logger.error(f"Unexpected error checking {full_key}: {e}")
             return False
     
-    def copy_file(self, source_key: str, dest_key: str, source_prefix: str = '', 
-                 dest_prefix: str = '') -> bool:
+    def copy_file(self, source_key: str, dest_key: str) -> bool:
         """
         Copy a file within S3
         
         Args:
             source_key: Source S3 object key
             dest_key: Destination S3 object key
-            source_prefix: Optional source bucket prefix
-            dest_prefix: Optional destination bucket prefix
             
         Returns:
             True if successful, False otherwise
         """
         
-        # Construct full keys
-        full_source_key = f"{source_prefix}/{source_key}" if source_prefix else source_key
-        full_dest_key = f"{dest_prefix}/{dest_key}" if dest_prefix else dest_key
+        # Use keys directly
+        full_source_key = source_key
+        full_dest_key = dest_key
         
         full_source_key = full_source_key.strip('/')
         full_dest_key = full_dest_key.strip('/')
@@ -207,21 +199,19 @@ class S3Manager:
             logger.error(f"Unexpected error copying file: {e}")
             return False
     
-    def delete_file(self, s3_key: str, bucket_prefix: str = '') -> bool:
+    def delete_file(self, s3_key: str) -> bool:
         """
         Delete a file from S3
         
         Args:
             s3_key: S3 object key (path to file)
-            bucket_prefix: Optional bucket prefix for organization
             
         Returns:
             True if successful, False otherwise
         """
         
-        # Construct full S3 key
-        full_key = f"{bucket_prefix}/{s3_key}" if bucket_prefix else s3_key
-        full_key = full_key.strip('/')  # Remove leading/trailing slashes
+        # Use s3_key directly
+        full_key = s3_key.strip('/')  # Remove leading/trailing slashes
         
         try:
             self.s3_client.delete_object(
@@ -240,22 +230,20 @@ class S3Manager:
             logger.error(f"Unexpected error deleting {full_key}: {e}")
             return False
     
-    def list_files(self, prefix: str, bucket_prefix: str = '', max_keys: int = 1000) -> List[Dict[str, Any]]:
+    def list_files(self, prefix: str, max_keys: int = 1000) -> List[Dict[str, Any]]:
         """
         List files in S3 with a given prefix
         
         Args:
             prefix: S3 prefix to filter by
-            bucket_prefix: Optional bucket prefix for organization
             max_keys: Maximum number of keys to return
             
         Returns:
             List of file information dictionaries
         """
         
-        # Construct full prefix
-        full_prefix = f"{bucket_prefix}/{prefix}" if bucket_prefix else prefix
-        full_prefix = full_prefix.strip('/')
+        # Use prefix directly
+        full_prefix = prefix.strip('/')
         
         try:
             response = self.s3_client.list_objects_v2(
@@ -285,21 +273,19 @@ class S3Manager:
             logger.error(f"Unexpected error listing files: {e}")
             return []
     
-    def get_file_info(self, s3_key: str, bucket_prefix: str = '') -> Optional[Dict[str, Any]]:
+    def get_file_info(self, s3_key: str) -> Optional[Dict[str, Any]]:
         """
         Get metadata information about a file
         
         Args:
             s3_key: S3 object key (path to file)
-            bucket_prefix: Optional bucket prefix for organization
             
         Returns:
             File information dictionary or None if failed
         """
         
-        # Construct full S3 key
-        full_key = f"{bucket_prefix}/{s3_key}" if bucket_prefix else s3_key
-        full_key = full_key.strip('/')  # Remove leading/trailing slashes
+        # Use s3_key directly
+        full_key = s3_key.strip('/')  # Remove leading/trailing slashes
         
         try:
             response = self.s3_client.head_object(

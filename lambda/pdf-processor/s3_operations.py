@@ -20,13 +20,12 @@ logger = logging.getLogger(__name__)
 # Initialize S3 client
 s3_client = boto3.client('s3')
 
-def download_pdf_from_s3(document_id: int, bucket_prefix: str) -> bytes:
+def download_pdf_from_s3(document_id: int) -> bytes:
     """
-    Download PDF from S3 using environment-only bucket selection
+    Download PDF from S3 using simplified bucket structure
     
     Args:
         document_id: Document ID
-        bucket_prefix: Bucket prefix for folder organization (not used in bucket name)
         
     Returns:
         bytes: PDF file content
@@ -36,7 +35,7 @@ def download_pdf_from_s3(document_id: int, bucket_prefix: str) -> bytes:
     """
     try:
         bucket_name = get_s3_bucket_name()
-        s3_key = f"{bucket_prefix}/IOriginal/Images/{document_id}.pdf"
+        s3_key = f"IProcessing/Images/{document_id}.pdf"
         
         logger.info(f"Downloading PDF {document_id} from s3://{bucket_name}/{s3_key}")
         
@@ -75,37 +74,31 @@ def get_s3_bucket_name() -> str:
         raise ValueError("S3_BUCKET_NAME environment variable not set")
     return bucket_name
 
-def get_s3_key_for_document(document_id: int, bucket_prefix: str, is_split: bool = False, 
+def get_s3_key_for_document(document_id: int, is_split: bool = False, 
                            split_sequence: Optional[int] = None) -> str:
     """
-    Generate S3 key following legacy Hydra DD structure
+    Generate S3 key using simplified structure
     
     Args:
         document_id: Document ID
-        bucket_prefix: Bucket prefix (e.g., 'ffn', 'upb', 'strategic')
         is_split: Whether this is a split document
         split_sequence: Split sequence number if is_split=True
         
     Returns:
         str: S3 key path
     """
-    base_path = f"{bucket_prefix}/IOriginal/Images"
-    
     if is_split and split_sequence is not None:
-        filename = f"{document_id}_split_{split_sequence}.pdf"
+        return f"IProcessing/Images/{document_id}_split_{split_sequence}.pdf"
     else:
-        filename = f"{document_id}.pdf"
-    
-    return f"{base_path}/{filename}"
+        return f"IProcessing/Images/{document_id}.pdf"
 
-def upload_split_to_s3(pdf_data: bytes, filename: str, bucket_prefix: str) -> str:
+def upload_split_to_s3(pdf_data: bytes, filename: str) -> str:
     """
-    Upload split PDF to S3 with proper bucket organization
+    Upload split PDF to S3 using simplified structure
     
     Args:
         pdf_data: PDF file bytes
         filename: Generated filename for the split
-        bucket_prefix: S3 bucket prefix organization
         
     Returns:
         str: S3 key of uploaded file
@@ -115,7 +108,7 @@ def upload_split_to_s3(pdf_data: bytes, filename: str, bucket_prefix: str) -> st
     """
     try:
         bucket_name = get_s3_bucket_name()
-        s3_key = f"{bucket_prefix}/IOriginal/Images/{filename}"
+        s3_key = f"IProcessing/Images/{filename}"
         
         logger.info(f"Uploading split PDF to s3://{bucket_name}/{s3_key}")
         
@@ -143,19 +136,16 @@ def upload_split_to_s3(pdf_data: bytes, filename: str, bucket_prefix: str) -> st
         logger.error(f"Unexpected error during S3 upload: {e}")
         raise Exception(f"Upload failed: {e}")
 
-def verify_s3_access(bucket_prefix: str) -> bool:
+def verify_s3_access() -> bool:
     """
     Verify S3 access and bucket structure
     
-    Args:
-        bucket_prefix: Bucket prefix to verify
-        
     Returns:
         bool: True if access is working
     """
     try:
         bucket_name = get_s3_bucket_name()
-        test_key = f"{bucket_prefix}/IOriginal/Images/"
+        test_key = "IProcessing/Images/"
         
         # List objects to verify access
         response = s3_client.list_objects_v2(
@@ -164,7 +154,7 @@ def verify_s3_access(bucket_prefix: str) -> bool:
             MaxKeys=1
         )
         
-        logger.info(f"S3 access verified for bucket {bucket_name}, prefix {bucket_prefix}")
+        logger.info(f"S3 access verified for bucket {bucket_name}")
         return True
         
     except Exception as e:
