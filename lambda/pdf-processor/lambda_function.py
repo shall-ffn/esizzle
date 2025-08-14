@@ -221,6 +221,13 @@ def process_document_splitting(payload: Dict[str, Any]) -> List[Dict[str, Any]]:
     
     logger.info(f"Generated {len(split_ranges)} split ranges: {split_ranges}")
     
+    # Handle special case: Index Only (single bookmark at page 0)
+    if not split_ranges:
+        logger.info("Index Only case detected - no splitting required")
+        update_processing_status(payload['sessionId'], 'completed', progress=100,
+                                message='Index Only operation - no splitting required')
+        return []
+    
     # Step 4: Split PDF and process each section
     results = []
     
@@ -294,6 +301,9 @@ def calculate_split_ranges(bookmarks: List[Dict], total_pages: int) -> List[Dict
         
     Returns:
         list: Split ranges with start/end pages and document type info
+        
+    Note: Single bookmark at page 0 should be handled by API (IndexOnly case),
+          not sent to Lambda for processing.
     """
     if not bookmarks:
         # No bookmarks - single document covering all pages
@@ -307,6 +317,13 @@ def calculate_split_ranges(bookmarks: List[Dict], total_pages: int) -> List[Dict
     
     # Sort bookmarks by page index
     sorted_bookmarks = sorted(bookmarks, key=lambda b: b['pageIndex'])
+    
+    # Special case: Single bookmark at page 0 (Index Only)
+    # This should be handled by API locally, not processed here
+    if len(sorted_bookmarks) == 1 and sorted_bookmarks[0]['pageIndex'] == 0:
+        logger.warning("Single bookmark at page 0 received in Lambda - this should be handled by API as IndexOnly")
+        # Return empty ranges to indicate no splitting should occur
+        return []
     
     ranges = []
     
