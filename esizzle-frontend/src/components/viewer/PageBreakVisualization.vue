@@ -14,7 +14,7 @@
       @click.stop="handlePageBreakClick(pageBreak)"
     >
       <div class="page-break-text">
-        {{ pageBreak.displayText || getDocumentTypeName(pageBreak.imageDocumentTypeId) }}
+        {{ getPageBreakDisplayText(pageBreak) }}
       </div>
       
       <!-- Page break controls for editing -->
@@ -65,7 +65,7 @@
         <p class="font-semibold mb-2">Page Break Mode Active</p>
         <ul class="text-xs space-y-1">
           <li>• Click at the top of a page to create a document split</li>
-          <li>• Green = normal documents, Orange = generic documents</li>
+          <li>• Green = normal documents, Orange = generic breaks</li>
           <li>• Select document type from dropdown</li>
           <li>• Splits will create separate PDF files</li>
         </ul>
@@ -92,6 +92,11 @@ import { ref, computed, onMounted } from 'vue'
 import type { 
   PageBreakAnnotation,
   DocumentType
+} from '@/types/manipulation'
+import { 
+  isGenericPageBreak, 
+  getPageBreakDisplayText, 
+  getPageBreakClass 
 } from '@/types/manipulation'
 
 interface Props {
@@ -135,7 +140,6 @@ const handlePageClick = (event: MouseEvent) => {
     pageIndex: props.pageNumber,
     text: 'Document Break',
     imageDocumentTypeId: 0, // User will need to select
-    isGeneric: false,
     displayText: 'New Document Break',
     deleted: false,
     documentDate: new Date(),
@@ -161,7 +165,6 @@ const updatePageBreak = (pageBreak: PageBreakAnnotation) => {
     const updates: Partial<PageBreakAnnotation> = {
       imageDocumentTypeId: pageBreak.imageDocumentTypeId,
       displayText: docType.name,
-      isGeneric: docType.isGeneric,
       text: docType.name,
       comments: pageBreak.comments
     }
@@ -169,16 +172,8 @@ const updatePageBreak = (pageBreak: PageBreakAnnotation) => {
   }
 }
 
-// Style calculations
-const getPageBreakClass = (pageBreak: PageBreakAnnotation): string => {
-  const baseClasses = ['absolute', 'h-5', 'flex', 'items-center', 'justify-center', 'text-white', 'font-bold', 'text-xs', 'cursor-pointer', 'transition-all']
-  
-  if (pageBreak.isGeneric) {
-    return [...baseClasses, 'page-break-generic', 'bg-orange-500'].join(' ')
-  } else {
-    return [...baseClasses, 'page-break-normal', 'bg-green-600'].join(' ')
-  }
-}
+// Style calculations - using imported utility function
+// getPageBreakClass is imported from types/manipulation
 
 const getPageBreakStyle = (pageBreak: PageBreakAnnotation) => {
   return {

@@ -111,8 +111,9 @@
       </div>
     </div>
 
-    <!-- Action Button -->
+    <!-- Action Buttons -->
     <div class="p-3 bg-gray-50 border-t border-gray-200">
+      <!-- Normal Action Button -->
       <button
         :disabled="!canTakeAction || loading"
         @click="handleActionButtonClick"

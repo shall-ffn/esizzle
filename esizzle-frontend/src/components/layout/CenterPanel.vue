@@ -66,170 +66,108 @@
 
     <!-- Main Viewer Area -->
     <div class="flex-1 flex overflow-hidden">
-      <!-- PDF Display Area -->
-      <div class="flex-1 flex flex-col bg-gray-700 relative" :style="{ minWidth: mainStore.selectedDocument ? '60%' : '100%' }">
-        <!-- Loading State -->
-        <div 
-          v-if="mainStore.loading.documentContent" 
-          class="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-75 z-10"
-        >
-          <div class="text-center text-white">
-            <div class="spinner mb-4 border-white border-t-transparent"></div>
-            <p class="text-sm">Loading document...</p>
-          </div>
-        </div>
-
-        <!-- No Document State -->
-        <div 
-          v-else-if="!mainStore.selectedDocument" 
-          class="flex-1 flex items-center justify-center"
-        >
-          <div class="text-center text-gray-400">
-            <DocumentIcon class="h-16 w-16 mx-auto mb-4 opacity-50" />
-            <p class="text-lg font-medium">No Document Selected</p>
-            <p class="text-sm mt-2">Select a document from the left panel to view it here</p>
-          </div>
-        </div>
-
-        <!-- Document Display -->
-        <div v-else class="flex-1 flex flex-col">
-          <!-- PDF Viewer Component with Redaction Overlay -->
-          <div class="flex-1 relative">
-            <PDFViewer
-              ref="pdfViewerRef"
-              :document-url="mainStore.documentUrl || undefined"
-              :page-number="mainStore.currentPage"
-              :zoom-level="mainStore.zoomLevel"
-              @loaded="handleDocumentLoaded"
-              @error="handleDocumentError"
-              @page-rendered="handlePageRendered"
-              @previous-page="handlePreviousPage"
-              @next-page="handleNextPage"
-              @go-to-page="handleGoToPage"
-            />
-            
-            <!-- Redaction Overlay -->
-            <RedactionOverlay
-              :active="redactionMode"
-              :document-id="mainStore.selectedDocument?.id || 0"
-              :current-page="mainStore.currentPage"
-              @exit="exitRedactionMode"
-              @areas-updated="handleRedactionAreasUpdated"
-              @apply-redactions="handleApplyRedactions"
-            />
+      <!-- Main PDF Display and Toolbar Area -->
+      <div class="flex-1 flex bg-gray-700 relative">
+        <!-- PDF Display Area -->
+        <div class="flex-1 flex flex-col bg-gray-700 relative">
+          <!-- Loading State -->
+          <div 
+            v-if="mainStore.loading.documentContent" 
+            class="absolute inset-0 flex items-center justify-center bg-gray-800 bg-opacity-75 z-10"
+          >
+            <div class="text-center text-white">
+              <div class="spinner mb-4 border-white border-t-transparent"></div>
+              <p class="text-sm">Loading document...</p>
+            </div>
           </div>
 
-          <!-- Page Navigation -->
-          <div class="bg-gray-900 px-4 py-2 flex items-center justify-between text-white">
-            <!-- Navigation Controls -->
-            <div class="flex items-center space-x-2">
-              <button
-                :disabled="mainStore.currentPage <= 1"
-                :class="[
-                  'p-1 rounded text-xs',
-                  {
-                    'bg-gray-700 hover:bg-gray-600': mainStore.currentPage > 1,
-                    'bg-gray-800 text-gray-500 cursor-not-allowed': mainStore.currentPage <= 1
-                  }
-                ]"
-                @click="mainStore.previousPage()"
-              >
-                <ChevronLeftIcon class="h-4 w-4" />
-              </button>
+          <!-- No Document State -->
+          <div 
+            v-else-if="!mainStore.selectedDocument" 
+            class="flex-1 flex items-center justify-center"
+          >
+            <div class="text-center text-gray-400">
+              <DocumentIcon class="h-16 w-16 mx-auto mb-4 opacity-50" />
+              <p class="text-lg font-medium">No Document Selected</p>
+              <p class="text-sm mt-2">Select a document from the left panel to view it here</p>
+            </div>
+          </div>
+
+          <!-- Document Display -->
+          <div v-else class="flex-1 flex flex-col">
+            <!-- PDF Viewer Component with Redaction Overlay -->
+            <div class="flex-1 relative">
+              <PDFViewer
+                ref="pdfViewerRef"
+                :document-url="mainStore.documentUrl || undefined"
+                :page-number="mainStore.currentPage"
+                :zoom-level="mainStore.zoomLevel"
+                @loaded="handleDocumentLoaded"
+                @error="handleDocumentError"
+                @page-rendered="handlePageRendered"
+                @previous-page="handlePreviousPage"
+                @next-page="handleNextPage"
+                @go-to-page="handleGoToPage"
+              />
               
-              <span class="text-sm px-2">
-                Page {{ mainStore.currentPage }} of {{ mainStore.totalPages }}
+              <!-- Redaction Overlay -->
+              <RedactionOverlay
+                :active="redactionMode"
+                :document-id="mainStore.selectedDocument?.id || 0"
+                :current-page="mainStore.currentPage"
+                @exit="exitRedactionMode"
+                @areas-updated="handleRedactionAreasUpdated"
+                @apply-redactions="handleApplyRedactions"
+              />
+            </div>
+
+            <!-- Page Status Bar (minimal) -->
+            <div class="bg-gray-900 px-4 py-1 text-white text-center">
+              <span class="text-xs">
+                Page {{ mainStore.currentPage }} of {{ mainStore.totalPages }} • {{ mainStore.zoomLevel }}%
               </span>
-              
-              <button
-                :disabled="mainStore.currentPage >= mainStore.totalPages"
-                :class="[
-                  'p-1 rounded text-xs',
-                  {
-                    'bg-gray-700 hover:bg-gray-600': mainStore.currentPage < mainStore.totalPages,
-                    'bg-gray-800 text-gray-500 cursor-not-allowed': mainStore.currentPage >= mainStore.totalPages
-                  }
-                ]"
-                @click="mainStore.nextPage()"
-              >
-                <ChevronRightIcon class="h-4 w-4" />
-              </button>
-            </div>
-
-            <!-- Zoom Controls -->
-            <div class="flex items-center space-x-2 text-sm">
-              <button
-                class="p-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
-                @click="adjustZoom(-25)"
-              >
-                <MinusIcon class="h-4 w-4" />
-              </button>
-              
-              <span>{{ mainStore.zoomLevel }}%</span>
-              
-              <button
-                class="p-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
-                @click="adjustZoom(25)"
-              >
-                <PlusIcon class="h-4 w-4" />
-              </button>
-              
-              <button
-                class="px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-xs"
-                @click="mainStore.setZoomLevel(100)"
-              >
-                Fit
-              </button>
             </div>
           </div>
         </div>
-      </div>
 
-      <!-- Thumbnail Panel (right side of center area) -->
-      <div 
-        v-if="mainStore.selectedDocument" 
-        class="w-80 bg-white border-l border-gray-300 flex-shrink-0"
-      >
-        <ThumbnailView
+        <!-- Vertical PDF Toolbar (right side) -->
+        <VerticalPdfToolbar 
+          v-if="mainStore.selectedDocument"
           :selected-document="mainStore.selectedDocument"
           :current-page="mainStore.currentPage"
           :total-pages="mainStore.totalPages"
-          :bookmarks="indexingStore.pendingBookmarks"
-          :thumbnails="thumbnails"
-          :loading="thumbnailsLoading"
-          @page-selected="handlePageSelected"
-          @thumbnail-loaded="handleThumbnailLoaded"
+          @generic-break-added="handleGenericBreakAdded"
+          @generic-break-removed="handleGenericBreakRemoved"
+          @page-changed="handlePageChanged"
+          @zoom-changed="handleZoomChanged"
+          @document-rotated="handleDocumentRotated"
+          @redaction-started="handleRedactionStarted"
+          @document-split="handleDocumentSplit"
+          @document-stacked="handleDocumentStacked"
         />
       </div>
     </div>
 
-    <!-- Document Tools Bar -->
-    <DocumentToolbar
-      :selected-document="mainStore.selectedDocument"
-      @document-rotated="handleDocumentRotated"
-      @redaction-started="handleRedactionStarted"
-      @document-split="handleDocumentSplit"
-      @document-stacked="handleDocumentStacked"
-    />
+    <!-- Status/Info Bar (replaces bottom toolbar) -->
+    <div v-if="mainStore.selectedDocument" class="bg-white border-t border-gray-200 px-4 py-2 text-xs text-gray-600">
+      <div class="flex items-center justify-between">
+        <span>{{ mainStore.selectedDocument.originalName }}</span>
+        <span>{{ mainStore.selectedDocument.pageCount || 0 }} pages • {{ (mainStore.selectedDocument.length / 1024).toFixed(1) }} KB</span>
+      </div>
+    </div>
   </div>
 </template>
 
 <script setup lang="ts">
-import { ref, computed, watch } from 'vue'
+import { ref, computed } from 'vue'
 import { useMainStore } from '@/stores/main'
 import { useIndexingStore } from '@/stores/indexing'
 import PDFViewer from '@/components/viewer/PDFViewer.vue'
-import DocumentToolbar from '@/components/tools/DocumentToolbar.vue'
+import VerticalPdfToolbar from '@/components/tools/VerticalPdfToolbar.vue'
 import RedactionOverlay from '@/components/tools/RedactionOverlay.vue'
-import ThumbnailView from '@/components/indexing/ThumbnailView.vue'
-import { pdfService } from '@/services/pdf.service'
 import type { PageThumbnailDto } from '@/types/indexing'
 import {
-  DocumentIcon,
-  ChevronLeftIcon,
-  ChevronRightIcon,
-  MinusIcon,
-  PlusIcon
+  DocumentIcon
 } from '@heroicons/vue/24/outline'
 
 const mainStore = useMainStore()
@@ -238,60 +176,28 @@ const indexingStore = useIndexingStore()
 // Component refs
 const pdfViewerRef = ref<InstanceType<typeof PDFViewer>>()
 
+interface Props {
+  thumbnails: PageThumbnailDto[]
+  thumbnailsLoading: boolean
+}
+
+interface Emits {
+  (e: 'thumbnails-generated', thumbnails: PageThumbnailDto[]): void
+}
+
+const props = defineProps<Props>()
+const emit = defineEmits<Emits>()
+
 // Redaction state
 const redactionMode = ref(false)
 
-// Thumbnail management
-const thumbnails = ref<PageThumbnailDto[]>([])
-const thumbnailsLoading = ref(false)
-
-// Generate thumbnails for the loaded PDF document
-const generateThumbnails = async () => {
-  if (!mainStore.documentUrl || !mainStore.totalPages) return
-  
-  thumbnailsLoading.value = true
-  try {
-    // Load the PDF document
-    const pdf = await pdfService.loadDocument(mainStore.documentUrl)
-    
-    // Generate thumbnails with appropriate sizing for 120px width and shorter height to match legacy interface
-    const thumbnailUrls = await pdfService.generateAllThumbnails(pdf, {
-      scale: 0.4,
-      maxWidth: 120,
-      maxHeight: 102, // Reduced height to match 85% aspect ratio (120 * 0.85)
-      quality: 0.8
-    })
-    
-    // Create PageThumbnailDto objects
-    const thumbnailDtos: PageThumbnailDto[] = thumbnailUrls.map((url, index) => ({
-      pageNumber: index + 1,
-      thumbnailUrl: url,
-      width: 120,
-      height: 102, // Updated to match the new aspect ratio
-      hasBookmark: false, // Will be updated by ThumbnailView component based on bookmarks
-      bookmarkType: undefined,
-      documentTypeName: undefined
-    }))
-    
-    thumbnails.value = thumbnailDtos
-    console.log(`Generated ${thumbnailDtos.length} thumbnails`)
-    
-  } catch (error) {
-    console.error('Failed to generate thumbnails:', error)
-    thumbnails.value = []
-  } finally {
-    thumbnailsLoading.value = false
-  }
-}
+// Thumbnail generation is now handled in parent AppShell component
 
 // PDF viewer event handlers
 const handleDocumentLoaded = async (pageCount: number) => {
   // Update total pages in store
   mainStore.totalPages = pageCount
   console.log(`Document loaded with ${pageCount} pages`)
-  
-  // Generate thumbnails after document loads
-  await generateThumbnails()
 }
 
 const handleDocumentError = (error: string) => {
@@ -320,10 +226,27 @@ const handleGoToPage = (page: number) => {
   }
 }
 
-// Zoom adjustment
+// Zoom adjustment (kept for compatibility)
 const adjustZoom = (delta: number) => {
   const newZoom = mainStore.zoomLevel + delta
   mainStore.setZoomLevel(newZoom)
+}
+
+// New handlers for vertical toolbar
+const handleGenericBreakAdded = (pageIndex: number) => {
+  console.log(`Generic break added at page ${pageIndex + 1}`)
+}
+
+const handleGenericBreakRemoved = (pageIndex: number) => {
+  console.log(`Generic break removed from page ${pageIndex + 1}`)
+}
+
+const handlePageChanged = (page: number) => {
+  mainStore.currentPage = page
+}
+
+const handleZoomChanged = (zoomLevel: number) => {
+  mainStore.setZoomLevel(zoomLevel)
 }
 
 // Document toolbar event handlers
@@ -365,25 +288,7 @@ const handleDocumentStacked = (documentId: number) => {
   // TODO: Implement document stacking
 }
 
-// Watch for document changes to regenerate thumbnails
-watch(() => mainStore.selectedDocument, async (newDoc) => {
-  if (newDoc && mainStore.documentUrl) {
-    thumbnails.value = []
-    await generateThumbnails()
-  } else {
-    thumbnails.value = []
-  }
-})
-
-// Thumbnail event handlers
-const handlePageSelected = (pageNumber: number) => {
-  mainStore.currentPage = pageNumber
-}
-
-const handleThumbnailLoaded = (pageNumber: number) => {
-  // Handle thumbnail loading completion
-  console.log('Thumbnail loaded for page:', pageNumber)
-}
+// Document change handling is now in parent AppShell component
 
 </script>
 

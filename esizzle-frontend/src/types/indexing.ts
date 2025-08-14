@@ -7,7 +7,6 @@
 export interface DocumentTypeDto {
   id: number
   name: string
-  isGeneric: boolean
   code: string
   dateCreated?: Date
   isUsed?: boolean
@@ -77,6 +76,11 @@ export interface CreateBookmarkRequest {
   documentTypeName: string
   documentDate?: Date
   comments?: string
+}
+
+// Specific request for creating generic breaks
+export interface CreateGenericBreakRequest {
+  pageIndex: number  // 0-based page index
 }
 
 export interface UpdateBookmarkRequest {
@@ -165,4 +169,48 @@ export interface IndexingState {
   showProcessingResults: boolean
   saving: boolean
   saveProgress: SaveProgress | null
+}
+
+// === UTILITY FUNCTIONS ===
+
+/**
+ * Check if a bookmark is a generic break
+ */
+export function isGenericBreak(bookmark: BookmarkDto): boolean {
+  return bookmark.imageDocumentTypeId === -1
+}
+
+/**
+ * Check if a create request is for a generic break
+ */
+export function isGenericBreakRequest(request: CreateBookmarkRequest): boolean {
+  return request.documentTypeId === -1
+}
+
+/**
+ * Get display text for a break (generic or normal)
+ */
+export function getBreakDisplayText(bookmark: BookmarkDto): string {
+  return isGenericBreak(bookmark) ? '---GENERIC BREAK---' : bookmark.documentTypeName
+}
+
+/**
+ * Get CSS class for break styling
+ */
+export function getBreakClass(bookmark: BookmarkDto): string {
+  return isGenericBreak(bookmark) ? 'page-break-generic bg-orange-500' : 'page-break-normal bg-green-600'
+}
+
+/**
+ * Create a generic break request object
+ */
+export function createGenericBreakRequest(imageId: number, pageIndex: number): CreateBookmarkRequest {
+  return {
+    imageId,
+    pageIndex,
+    documentTypeId: -1, // Generic break identifier
+    documentTypeName: '', // Empty for generic breaks
+    documentDate: undefined,
+    comments: undefined
+  }
 }

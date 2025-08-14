@@ -98,11 +98,15 @@ namespace EsizzleAPI.Controllers
                     return BadRequest(new { message = "Page index must be non-negative" });
                 }
 
-                // Verify document type exists
-                var documentType = await _indexingRepository.GetDocumentTypeByIdAsync(request.DocumentTypeId);
-                if (documentType == null)
+                // Skip document type validation for generic breaks (DocumentTypeId = -1)
+                if (!request.IsGenericBreak)
                 {
-                    return BadRequest(new { message = "Invalid document type" });
+                    // Verify document type exists
+                    var documentType = await _indexingRepository.GetDocumentTypeByIdAsync(request.DocumentTypeId);
+                    if (documentType == null)
+                    {
+                        return BadRequest(new { message = "Invalid document type" });
+                    }
                 }
 
                 var bookmark = await _indexingRepository.CreateBookmarkAsync(request, GetUserId());
@@ -112,6 +116,32 @@ namespace EsizzleAPI.Controllers
             {
                 _logger.LogError(ex, "Failed to create bookmark for document {DocumentId}", documentId);
                 return StatusCode(500, new { message = "Failed to create bookmark" });
+            }
+        }
+
+        /// <summary>
+        /// Create a generic document break (no document type assigned)
+        /// </summary>
+        [HttpPost("{documentId}/generic-break")]
+        public async Task<ActionResult<BookmarkDto>> CreateGenericBreak(
+            int documentId,
+            [FromBody] CreateGenericBreakRequest request)
+        {
+            try
+            {
+                // Validate request
+                if (request.PageIndex < 0)
+                {
+                    return BadRequest(new { message = "Page index must be non-negative" });
+                }
+
+                var bookmark = await _indexingRepository.CreateGenericBreakAsync(documentId, request.PageIndex, GetUserId());
+                return CreatedAtAction(nameof(GetBookmarks), new { documentId }, bookmark);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create generic break for document {DocumentId}", documentId);
+                return StatusCode(500, new { message = "Failed to create generic break" });
             }
         }
 
@@ -452,6 +482,11 @@ namespace EsizzleAPI.Controllers
     {
         public int BookmarkId { get; set; }
         public int ResultDocumentId { get; set; }
+    }
+
+    public class CreateGenericBreakRequest
+    {
+        public int PageIndex { get; set; }  // 0-based page index
     }
 
     // === LAMBDA SERVICE INTERFACE ===

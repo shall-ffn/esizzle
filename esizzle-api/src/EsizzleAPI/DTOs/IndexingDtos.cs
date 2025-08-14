@@ -9,7 +9,6 @@ namespace EsizzleAPI.DTOs
     {
         public int Id { get; set; }
         public string Name { get; set; } = string.Empty;
-        public bool IsGeneric { get; set; }
         public string Code { get; set; } = string.Empty;
     }
 
@@ -109,6 +108,11 @@ namespace EsizzleAPI.DTOs
         public string DocumentTypeName { get; set; } = string.Empty;
         public DateTime? DocumentDate { get; set; }
         public string? Comments { get; set; }
+        
+        /// <summary>
+        /// Helper property to identify generic break creation
+        /// </summary>
+        public bool IsGenericBreak => DocumentTypeId == -1;
     }
 
     /// <summary>

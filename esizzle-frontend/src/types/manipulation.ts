@@ -51,7 +51,6 @@ export interface PageBreakAnnotation {
   text: string                   // Document type and metadata
   imageDocumentTypeId: number
   resultImageId?: number         // Populated after split
-  isGeneric: boolean             // Orange vs green display
   displayText: string            // Human-readable display text
   deleted: boolean
   documentDate?: Date
@@ -141,7 +140,6 @@ export interface ViewportInfo {
 export interface DocumentType {
   id: number
   name: string
-  isGeneric: boolean
   description?: string
   category?: string
 }
@@ -209,4 +207,33 @@ export interface CoordinateTranslationOptions {
   canvasDimensions: { width: number; height: number }
   zoomLevel: number
   pageRotation?: number
+}
+
+// === PAGE BREAK UTILITY FUNCTIONS ===
+
+/**
+ * Check if a page break is a generic break
+ */
+export function isGenericPageBreak(pageBreak: PageBreakAnnotation): boolean {
+  return pageBreak.imageDocumentTypeId === -1
+}
+
+/**
+ * Get display text for a page break (generic or normal)
+ */
+export function getPageBreakDisplayText(pageBreak: PageBreakAnnotation): string {
+  return isGenericPageBreak(pageBreak) ? '---GENERIC BREAK---' : pageBreak.displayText
+}
+
+/**
+ * Get CSS class for page break styling
+ */
+export function getPageBreakClass(pageBreak: PageBreakAnnotation): string {
+  const baseClasses = ['absolute', 'h-5', 'flex', 'items-center', 'justify-center', 'text-white', 'font-bold', 'text-xs', 'cursor-pointer', 'transition-all']
+  
+  if (isGenericPageBreak(pageBreak)) {
+    return [...baseClasses, 'page-break-generic', 'bg-orange-500'].join(' ')
+  } else {
+    return [...baseClasses, 'page-break-normal', 'bg-green-600'].join(' ')
+  }
 }

@@ -6,6 +6,7 @@ import type {
   ProcessingResultDto,
   ProcessingSessionDto,
   CreateBookmarkRequest,
+  CreateGenericBreakRequest,
   UpdateBookmarkRequest,
   ProcessBookmarksRequest,
   ValidationResult,
@@ -169,6 +170,29 @@ export const useIndexingStore = defineStore('indexing', () => {
         message: `Failed to create bookmark: ${error}`,
         recoverable: true,
         recovery_action: 'Try creating the bookmark again'
+      }
+      throw error
+    }
+  }
+
+  const createGenericBreak = async (documentId: number, pageIndex: number): Promise<void> => {
+    const request: CreateGenericBreakRequest = {
+      pageIndex
+    }
+    
+    try {
+      const bookmark = await indexingApi.createGenericBreak(documentId, request)
+      pendingBookmarks.value.push(bookmark)
+      
+      // Update UI state
+      currentBookmarkPage.value = pageIndex
+    } catch (error) {
+      lastError.value = {
+        type: 'database',
+        code: 'CREATE_GENERIC_BREAK_FAILED',
+        message: `Failed to create generic break: ${error}`,
+        recoverable: true,
+        recovery_action: 'Try creating the generic break again'
       }
       throw error
     }
@@ -494,6 +518,7 @@ export const useIndexingStore = defineStore('indexing', () => {
     clearDocumentTypeSelection,
     loadBookmarksForDocument,
     createBookmark,
+    createGenericBreak,
     updateBookmark,
     deleteBookmark,
     clearAllBookmarks,

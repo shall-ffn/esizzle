@@ -1,7 +1,7 @@
 <template>
   <div class="thumbnail-view">
     <!-- Header -->
-    <div class="bg-gray-50 px-3 py-2 border-b border-gray-200">
+    <div class="bg-gray-50 px-2 py-2 border-b border-gray-200">
       <div class="flex items-center justify-between">
         <h3 class="text-sm font-medium text-gray-700">Page Thumbnails</h3>
         <div class="flex items-center space-x-2">
@@ -90,10 +90,18 @@
             <span class="text-xs text-gray-600 font-medium">{{ pageNumber }}</span>
           </div>
 
-          <!-- Document type name (if bookmark exists) -->
+          <!-- Document type name (if bookmark exists) with colored styling -->
           <div v-if="hasBookmarkOnPage(pageNumber - 1)" class="text-center mt-1">
-            <span class="text-xs text-gray-500 truncate block px-1">
-              {{ getDocumentTypeName(pageNumber - 1) }}
+            <span 
+              :class="[
+                'text-xs truncate block px-2 py-1 rounded text-center font-medium',
+                {
+                  'bg-green-100 text-green-800 border border-green-300': getBookmarkType(pageNumber - 1) === 'normal',
+                  'bg-orange-100 text-orange-800 border border-orange-300': getBookmarkType(pageNumber - 1) === 'generic'
+                }
+              ]"
+            >
+              {{ getDocumentTypeName(pageNumber - 1) || (getBookmarkType(pageNumber - 1) === 'generic' ? 'GENERIC BREAK' : 'DOCUMENT BREAK') }}
             </span>
           </div>
         </div>
@@ -101,7 +109,7 @@
     </div>
 
     <!-- Legend -->
-    <div class="p-3 bg-gray-50 border-t border-gray-200">
+    <div class="p-2 bg-gray-50 border-t border-gray-200">
       <div class="text-xs text-gray-600">
         <div class="flex items-center justify-between mb-2">
           <span class="font-medium">Legend:</span>
@@ -240,15 +248,15 @@ watch(() => props.selectedDocument, () => {
 }
 
 .thumbnails-container {
-  max-height: 60vh;
+  flex: 1;
   overflow-y: auto;
-  padding: 8px;
+  padding: 4px 1px; /* Further reduced horizontal padding */
 }
 
 .thumbnail-item {
   position: relative;
   margin-bottom: 8px; /* Better spacing to match legacy */
-  padding: 4px; /* More padding for better visual separation */
+  padding: 1px; /* Minimal padding for tightest layout */
   border-radius: 4px;
   transition: all 0.2s ease-in-out;
 }
@@ -261,7 +269,7 @@ watch(() => props.selectedDocument, () => {
 .thumbnail-container {
   position: relative;
   width: 100%;
-  max-width: 120px; /* Larger to match the legacy interface shown */
+  max-width: 140px; /* Back to previous size */
   /* Reduced aspect ratio to eliminate top/bottom whitespace */
   height: 0;
   padding-bottom: 60%; /* Shorter height to eliminate top/bottom whitespace */
@@ -290,17 +298,21 @@ watch(() => props.selectedDocument, () => {
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
-/* Bookmark styling - matches legacy colors */
+/* Bookmark styling - matches legacy colors with enhanced borders */
 .thumbnail-item.has-bookmark .thumbnail-container {
-  border-color: #dc2626;
+  border-width: 2px;
 }
 
 .thumbnail-item.normal-bookmark .thumbnail-container {
-  box-shadow: 0 0 0 2px #22c55e;
+  border-color: #22c55e; /* Light green border for normal breaks */
+  box-shadow: 0 0 0 1px #22c55e, 0 0 8px rgba(34, 197, 94, 0.3); /* Green glow effect */
+  background: linear-gradient(to bottom, rgba(34, 197, 94, 0.05), rgba(34, 197, 94, 0.02)); /* Light green background tint */
 }
 
 .thumbnail-item.generic-bookmark .thumbnail-container {
-  box-shadow: 0 0 0 2px #f97316;
+  border-color: #f97316; /* Orange border for generic breaks */
+  box-shadow: 0 0 0 1px #f97316, 0 0 8px rgba(249, 115, 22, 0.3); /* Orange glow effect */
+  background: linear-gradient(to bottom, rgba(249, 115, 22, 0.05), rgba(249, 115, 22, 0.02)); /* Light orange background tint */
 }
 
 /* Indicators */

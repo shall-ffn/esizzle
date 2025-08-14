@@ -50,7 +50,7 @@ namespace EsizzleAPI.Repositories
                 
                 // Now run the main query
                 var sql = @"
-                    SELECT dt.ID as Id, dt.Name, 0 as IsGeneric, dt.Code
+                    SELECT dt.ID as Id, dt.Name, dt.Code
                     FROM ImageDocTypeMasterList dt
                     INNER JOIN Offerings o ON dt.Code = o.IndexCode
                     WHERE o.OfferingID = @offeringId";
@@ -91,7 +91,7 @@ namespace EsizzleAPI.Repositories
             using var connection = _dbConnectionFactory.CreateConnection();
             
             const string sql = @"
-                SELECT ID as Id, Name, 0 as IsGeneric, Code
+                SELECT ID as Id, Name, Code
                 FROM ImageDocTypeMasterList
                 WHERE ID = @documentTypeId";
 
@@ -112,13 +112,13 @@ namespace EsizzleAPI.Repositories
                     b.Text,
                     b.ImageDocumentTypeID as ImageDocumentTypeId,
                     dt.Name as DocumentTypeName,
-                    0 as IsGeneric,
+                    CASE WHEN b.ImageDocumentTypeID = -1 THEN 1 ELSE 0 END as IsGeneric,
                     b.DateCreated,
                     b.ResultImageID as ResultImageId,
                     CASE WHEN b.ResultImageID IS NULL THEN 1 ELSE 0 END as CanEdit,
                     b.CreatedBy
                 FROM ImageBookmark b
-                INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                LEFT JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
                 WHERE b.ImageID = @documentId AND b.Deleted = 0
                 ORDER BY b.PageIndex";
 
@@ -138,13 +138,13 @@ namespace EsizzleAPI.Repositories
                     b.Text,
                     b.ImageDocumentTypeID as ImageDocumentTypeId,
                     dt.Name as DocumentTypeName,
-                    0 as IsGeneric,
+                    CASE WHEN b.ImageDocumentTypeID = -1 THEN 1 ELSE 0 END as IsGeneric,
                     b.DateCreated,
                     b.ResultImageID as ResultImageId,
                     CASE WHEN b.ResultImageID IS NULL THEN 1 ELSE 0 END as CanEdit,
                     b.CreatedBy
                 FROM ImageBookmark b
-                INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                LEFT JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
                 WHERE b.ID = @bookmarkId AND b.Deleted = 0";
 
             return await connection.QueryFirstOrDefaultAsync<BookmarkDto>(sql, new { bookmarkId });
@@ -176,6 +176,24 @@ namespace EsizzleAPI.Repositories
             // Return the created bookmark
             var result = await GetBookmarkByIdAsync(bookmarkId);
             return result ?? throw new InvalidOperationException("Failed to retrieve created bookmark");
+        }
+
+        /// <summary>
+        /// Creates a generic document break (ImageDocumentTypeID = -1)
+        /// </summary>
+        public async Task<BookmarkDto> CreateGenericBreakAsync(int imageId, int pageIndex, int userId)
+        {
+            var request = new CreateBookmarkRequest
+            {
+                ImageId = imageId,
+                PageIndex = pageIndex,
+                DocumentTypeId = -1, // Generic break identifier
+                DocumentTypeName = "", // Empty for generic breaks
+                DocumentDate = null,
+                Comments = null
+            };
+            
+            return await CreateBookmarkAsync(request, userId);
         }
 
         public async Task<BookmarkDto?> UpdateBookmarkAsync(int documentId, int bookmarkId, UpdateBookmarkRequest request)
@@ -518,9 +536,13 @@ namespace EsizzleAPI.Repositories
             if (!loanId.HasValue)
                 throw new ArgumentException("Original document not found", nameof(originalDocumentId));
 
+            // Determine status based on document type (generic vs normal)
+            var statusId = documentTypeId == -1 ? 20 : 1; // 20 = Needs Work, 1 = Production
+            var docTypeId = documentTypeId == -1 ? (int?)null : documentTypeId; // NULL for generic breaks
+            
             const string insertSql = @"
-                INSERT INTO Image (OriginalName, ParsedName, PageCount, LoanID, DocTypeManualID, Path, CreatedBy, DateCreated, DateUpdated, Deleted)
-                VALUES (@OriginalName, @ParsedName, @PageCount, @LoanID, @DocTypeManualID, @Path, @CreatedBy, @DateCreated, @DateUpdated, 0);
+                INSERT INTO Image (OriginalName, ParsedName, PageCount, LoanID, DocTypeManualID, ImageStatusTypeID, Path, CreatedBy, DateCreated, DateUpdated, Deleted)
+                VALUES (@OriginalName, @ParsedName, @PageCount, @LoanID, @DocTypeManualID, @ImageStatusTypeID, @Path, @CreatedBy, @DateCreated, @DateUpdated, 0);
                 SELECT LAST_INSERT_ID();";
 
             var now = DateTime.UtcNow;
@@ -530,7 +552,8 @@ namespace EsizzleAPI.Repositories
                 ParsedName = newName,
                 PageCount = pageCount,
                 LoanID = loanId.Value,
-                DocTypeManualID = documentTypeId,
+                DocTypeManualID = docTypeId,
+                ImageStatusTypeID = statusId,
                 Path = filePath,
                 CreatedBy = userId,
                 DateCreated = now,
@@ -596,10 +619,10 @@ namespace EsizzleAPI.Repositories
                     SELECT 
                         b.PageIndex,
                         dt.Name as DocumentTypeName,
-                        0 as IsGeneric,
+                        CASE WHEN b.ImageDocumentTypeID = -1 THEN 1 ELSE 0 END as IsGeneric,
                         b.ImageDocumentTypeID as DocumentTypeId
                     FROM ImageBookmark b
-                    INNER JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
+                    LEFT JOIN ImageDocTypeMasterList dt ON b.ImageDocumentTypeID = dt.ID
                     WHERE b.ImageID = @documentId AND b.Deleted = 0";
 
                 var results = await connection.QueryAsync<ThumbnailBookmarkDto>(sql, new { documentId });
@@ -622,6 +645,12 @@ namespace EsizzleAPI.Repositories
 
         public string BuildBookmarkText(string documentTypeName, int documentTypeId, DateTime? documentDate, string? comments)
         {
+            // Handle generic breaks with special format
+            if (documentTypeId == -1)
+            {
+                return " | -1 | ";
+            }
+            
             var dateString = documentDate?.ToString("yyyy-MM-dd", CultureInfo.InvariantCulture) ?? "";
             return $"{documentTypeName} | {documentTypeId} | {dateString} | {comments ?? ""}";
         }
@@ -642,6 +671,22 @@ namespace EsizzleAPI.Repositories
             var comments = string.IsNullOrWhiteSpace(parts[3]) ? null : parts[3];
 
             return (documentTypeName, documentTypeId, documentDate, comments);
+        }
+        
+        /// <summary>
+        /// Helper method to determine if a bookmark is a generic break
+        /// </summary>
+        public static bool IsGenericBreak(BookmarkDto bookmark)
+        {
+            return bookmark.ImageDocumentTypeId == -1;
+        }
+        
+        /// <summary>
+        /// Get display text for a break (generic or normal)
+        /// </summary>
+        public static string GetBreakDisplayText(BookmarkDto bookmark)
+        {
+            return IsGenericBreak(bookmark) ? "---GENERIC BREAK---" : bookmark.DocumentTypeName;
         }
     }
 }

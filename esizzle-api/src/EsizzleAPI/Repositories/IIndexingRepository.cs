@@ -38,6 +38,11 @@ namespace EsizzleAPI.Repositories
         Task<BookmarkDto> CreateBookmarkAsync(CreateBookmarkRequest request, int userId);
         
         /// <summary>
+        /// Create a generic document break (ImageDocumentTypeID = -1)
+        /// </summary>
+        Task<BookmarkDto> CreateGenericBreakAsync(int imageId, int pageIndex, int userId);
+        
+        /// <summary>
         /// Update an existing bookmark
         /// </summary>
         Task<BookmarkDto?> UpdateBookmarkAsync(int documentId, int bookmarkId, UpdateBookmarkRequest request);

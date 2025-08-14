@@ -5,6 +5,7 @@ import type {
   ProcessingResultDto,
   ProcessingSessionDto,
   CreateBookmarkRequest,
+  CreateGenericBreakRequest,
   UpdateBookmarkRequest,
   ProcessBookmarksRequest,
   DocumentMetadata,
@@ -91,6 +92,13 @@ export const indexingApi = {
    */
   async createBookmark(documentId: number, request: CreateBookmarkRequest): Promise<BookmarkDto> {
     return await apiClient.post(`/api/documents/${documentId}/bookmarks`, request)
+  },
+
+  /**
+   * Create a generic document break (no document type assigned)
+   */
+  async createGenericBreak(documentId: number, request: CreateGenericBreakRequest): Promise<BookmarkDto> {
+    return await apiClient.post(`/api/documents/${documentId}/generic-break`, request)
   },
   
   /**

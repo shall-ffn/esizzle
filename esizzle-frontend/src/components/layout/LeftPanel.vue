@@ -277,6 +277,7 @@ const formatDateTime = (date: Date | string) => {
     minute: '2-digit'
   })
 }
+
 </script>
 
 <style scoped>
