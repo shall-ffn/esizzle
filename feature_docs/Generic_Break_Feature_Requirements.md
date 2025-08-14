@@ -349,9 +349,32 @@ const getBreakText = (pageBreak: PageBreakAnnotation) => {
 ## Implementation Priority
 
 **Phase 1 (Critical):**
+- ✅ **FIXED: Single Bookmark at Page 0 Logic** - Updated `lambda_function.py` to properly handle IndexOnly cases
 - Fix hardcoded IsGeneric queries in IndexingRepository (remove non-existent field)
 - Implement generic break detection (ImageDocumentTypeID = -1)
 - Add Lambda processing logic for status assignment
+
+## Recent Fixes Applied
+
+### ✅ Single Bookmark at Page 0 Logic Fix (January 2025)
+**Issue:** Lambda function incorrectly processed single bookmarks at page 0 as document splits instead of index-only operations.
+
+**Root Cause:** The `calculate_split_ranges()` function in `lambda_function.py` treated every bookmark as a split point, ignoring the special case documented in the requirements.
+
+**Fix Applied:**
+- Modified `calculate_split_ranges()` to detect single bookmark at page 0
+- Returns empty ranges for IndexOnly cases with warning log
+- Added early return in `process_document_splitting()` when no ranges are generated
+- API controller already correctly handles IndexOnly cases locally
+
+**Files Modified:**
+- `/lambda/pdf-processor/lambda_function.py` (lines 314-319, 224-229)
+
+**Behavior After Fix:**
+- Single bookmark at page 0 → API handles locally (no Lambda call)
+- If somehow sent to Lambda → Returns empty ranges, logs warning, completes with no processing
+- Multiple bookmarks → Normal Lambda splitting behavior
+- Single bookmark not at page 0 → Normal Lambda splitting behavior
 
 **Phase 2 (Core Features):**
 - UI controls for generic break creation/removal  
