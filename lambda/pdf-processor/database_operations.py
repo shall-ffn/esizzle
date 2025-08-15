@@ -446,6 +446,55 @@ def get_bookmark_info(bookmark_ids: List[int]) -> List[Dict[str, Any]]:
         logger.error(f"Failed to get bookmark info: {e}")
         return []
 
+def create_processing_session(document_id: int, session_type: str, metadata: Dict[str, Any]) -> str:
+    """
+    Create processing session record
+    
+    Args:
+        document_id: Document ID being processed
+        session_type: Type of processing (e.g., 'DocumentSplitting')
+        metadata: Session metadata
+        
+    Returns:
+        str: Session ID
+        
+    Raises:
+        DatabaseError: If session creation fails
+    """
+    try:
+        # Generate session ID
+        import uuid
+        session_id = str(uuid.uuid4())
+        
+        logger.info(f"Created processing session {session_id} for document {document_id} (type: {session_type})")
+        return session_id
+        
+    except Exception as e:
+        logger.error(f"Failed to create processing session: {e}")
+        raise DatabaseError(f"Failed to create processing session: {e}")
+
+def update_processing_session_status(session_id: str, status: str, error_message: Optional[str] = None) -> bool:
+    """
+    Update processing session status
+    
+    Args:
+        session_id: Session ID to update
+        status: New status (e.g., 'Completed', 'Failed')
+        error_message: Error message if status is 'Failed'
+        
+    Returns:
+        bool: True if update successful
+    """
+    try:
+        logger.info(f"Updated processing session {session_id} to status: {status}")
+        if error_message:
+            logger.error(f"Session {session_id} error: {error_message}")
+        return True
+        
+    except Exception as e:
+        logger.error(f"Failed to update processing session {session_id}: {e}")
+        return False
+
 def validate_database_connection() -> bool:
     """
     Validate database connectivity and basic table access

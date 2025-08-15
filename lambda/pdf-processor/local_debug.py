@@ -138,21 +138,62 @@ def load_test_payload(payload_file: str) -> Dict[str, Any]:
         return create_test_payload()
 
 def mock_s3_operations():
-    """Mock S3 operations for local testing"""
+    """Mock S3 operations for local testing but create real PDFs"""
+    from reportlab.pdfgen import canvas
+    from reportlab.lib.pagesizes import letter
+    import io
+    import os
     
     def mock_download_pdf_from_s3(document_id):
-        logger.info(f"MOCK: Downloading PDF {document_id} from simplified bucket structure")
+        logger.info(f"MOCK: Generating realistic 15-page PDF for document {document_id}")
         
-        # Create a minimal PDF for testing
-        mock_pdf_data = b'%PDF-1.4\n1 0 obj\n<<\n/Type /Catalog\n/Pages 2 0 R\n>>\nendobj\n2 0 obj\n<<\n/Type /Pages\n/Kids [3 0 R]\n/Count 1\n>>\nendobj\n3 0 obj\n<<\n/Type /Page\n/Parent 2 0 R\n/MediaBox [0 0 612 792]\n>>\nendobj\nxref\n0 4\n0000000000 65535 f \n0000000009 00000 n \n0000000074 00000 n \n0000000120 00000 n \ntrailer\n<<\n/Size 4\n/Root 1 0 R\n>>\nstartxref\n178\n%%EOF'
+        # Create a realistic 15-page PDF using reportlab
+        buffer = io.BytesIO()
+        c = canvas.Canvas(buffer, pagesize=letter)
+        width, height = letter
         
-        logger.info(f"MOCK: Generated {len(mock_pdf_data)} bytes of test PDF data")
-        return mock_pdf_data
+        # Generate 15 pages with different content
+        for page_num in range(1, 16):
+            c.drawString(100, height - 100, f"Document ID: {document_id}")
+            c.drawString(100, height - 130, f"Page {page_num} of 15")
+            c.drawString(100, height - 160, f"Generated for PDF splitting test")
+            
+            # Add some content based on page ranges that will be split
+            if page_num <= 5:
+                c.drawString(100, height - 200, "AGREEMENT SECTION")
+                c.drawString(100, height - 230, "This content belongs to the Agreement document type.")
+            elif page_num <= 10:
+                c.drawString(100, height - 200, "AMENDMENT SECTION") 
+                c.drawString(100, height - 230, "This content belongs to the Amendment document type.")
+            else:
+                c.drawString(100, height - 200, "SCHEDULE SECTION")
+                c.drawString(100, height - 230, "This content belongs to the Schedule document type.")
+            
+            # Add page footer
+            c.drawString(100, 50, f"Test PDF - Page {page_num}")
+            c.showPage()
+        
+        c.save()
+        pdf_data = buffer.getvalue()
+        
+        # Save source PDF to disk for inspection
+        source_file = f"source_document_{document_id}.pdf"
+        with open(source_file, 'wb') as f:
+            f.write(pdf_data)
+        logger.info(f"MOCK: Source PDF saved to {source_file} ({len(pdf_data)} bytes)")
+        
+        return pdf_data
     
     def mock_upload_split_to_s3(pdf_data, filename):
-        logger.info(f"MOCK: Uploading {len(pdf_data)} bytes to {filename}")
-        mock_s3_key = f"IOriginal/Images/{filename}"
-        logger.info(f"MOCK: Upload successful, S3 key: {mock_s3_key}")
+        logger.info(f"MOCK: Saving split PDF {filename} to disk ({len(pdf_data)} bytes)")
+        
+        # Save split PDF to disk
+        split_file = f"split_{filename}"
+        with open(split_file, 'wb') as f:
+            f.write(pdf_data)
+        
+        mock_s3_key = f"IProcessing/Images/{filename}"
+        logger.info(f"MOCK: Split PDF saved to {split_file}, S3 key: {mock_s3_key}")
         return mock_s3_key
     
     return mock_download_pdf_from_s3, mock_upload_split_to_s3
@@ -160,19 +201,33 @@ def mock_s3_operations():
 def mock_database_operations():
     """Mock database operations for local testing"""
     
+    # Counter for unique image IDs
+    _image_id_counter = [1000]
+    
     def mock_create_image_record(source_document_id, split_range, s3_key, filename, page_count, metadata):
-        mock_image_id = 1000 + source_document_id
+        # Generate unique image ID for each split
+        _image_id_counter[0] += 1
+        mock_image_id = _image_id_counter[0]
         logger.info(f"MOCK: Created Image record {mock_image_id} for split document")
         logger.debug(f"MOCK: Split range: {split_range}")
         logger.debug(f"MOCK: S3 key: {s3_key}, filename: {filename}, pages: {page_count}")
         return mock_image_id
+    
+    def mock_update_image_record_s3_info(image_id, s3_key, filename):
+        logger.info(f"MOCK: Updated Image record {image_id} with S3 info: {s3_key}")
+        logger.debug(f"MOCK: Filename: {filename}")
+        return True
     
     def mock_update_database_records(source_document_id, bookmarks, results):
         logger.info(f"MOCK: Updated database records for document {source_document_id}")
         logger.debug(f"MOCK: Updated {len(results)} bookmark results")
         return True
     
-    return mock_create_image_record, mock_update_database_records
+    def mock_mark_original_document_obsolete(document_id):
+        logger.info(f"MOCK: Marked original document {document_id} as obsolete")
+        return True
+    
+    return mock_create_image_record, mock_update_image_record_s3_info, mock_update_database_records, mock_mark_original_document_obsolete
 
 def mock_api_callbacks():
     """Mock API callbacks for local testing"""
@@ -219,10 +274,12 @@ def run_lambda_locally(payload: Dict[str, Any], use_mocks: bool = True):
         ])
         
         # Mock database operations
-        mock_create_image, mock_update_db = mock_database_operations()
+        mock_create_image, mock_update_image_s3, mock_update_db, mock_mark_obsolete = mock_database_operations()
         patches.extend([
             patch('database_operations.create_image_record', side_effect=mock_create_image),
-            patch('database_operations.update_database_records', side_effect=mock_update_db)
+            patch('database_operations.update_image_record_s3_info', side_effect=mock_update_image_s3),
+            patch('database_operations.update_database_records', side_effect=mock_update_db),
+            patch('database_operations.mark_original_document_obsolete', side_effect=mock_mark_obsolete)
         ])
         
         # Mock API callbacks

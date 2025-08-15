@@ -33,6 +33,7 @@ from database_operations import (
     update_image_record_s3_info,
     mark_original_document_obsolete,
     update_bookmark_with_result,
+    update_database_records,
     create_processing_session,
     update_processing_session_status
 )
