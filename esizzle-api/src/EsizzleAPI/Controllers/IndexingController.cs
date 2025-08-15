@@ -450,9 +450,12 @@ namespace EsizzleAPI.Controllers
         {
             try
             {
-                foreach (var link in request.BookmarkResults)
+                foreach (var result in request.Results)
                 {
-                    await _indexingRepository.LinkBookmarkToResultAsync(link.BookmarkId, link.ResultDocumentId);
+                    if (result.BookmarkId.HasValue)
+                    {
+                        await _indexingRepository.LinkBookmarkToResultAsync(result.BookmarkId.Value, result.ResultImageId);
+                    }
                 }
 
                 return NoContent();
@@ -475,13 +478,23 @@ namespace EsizzleAPI.Controllers
 
     public class LinkResultsRequest
     {
-        public List<BookmarkResult> BookmarkResults { get; set; } = new();
+        public List<ProcessingResult> Results { get; set; } = new();
+        public DateTime Timestamp { get; set; }
+        public int TotalResults { get; set; }
     }
 
-    public class BookmarkResult
+    public class ProcessingResult
     {
-        public int BookmarkId { get; set; }
-        public int ResultDocumentId { get; set; }
+        public int OriginalImageId { get; set; }
+        public int ResultImageId { get; set; }
+        public int StartPage { get; set; }
+        public int EndPage { get; set; }
+        public int PageCount { get; set; }
+        public int DocumentTypeId { get; set; }
+        public string DocumentTypeName { get; set; } = string.Empty;
+        public string Filename { get; set; } = string.Empty;
+        public string ProcessingStatus { get; set; } = string.Empty;
+        public int? BookmarkId { get; set; } // Optional for generic breaks
     }
 
     public class CreateGenericBreakRequest
