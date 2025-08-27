@@ -44,8 +44,6 @@
           <canvas
             ref="canvasRef"
             class="pdf-canvas shadow-lg border border-gray-300 bg-white block"
-            width="800"
-            height="1000"
           />
         </div>
       </div>
@@ -106,6 +104,7 @@ const error = ref('')
 // Use markRaw to prevent Vue from making PDF.js objects reactive
 const currentPdf = ref<PDFDocumentProxy | null>(null)
 const isRendering = ref(false)
+const resizeObserver = ref<ResizeObserver | null>(null)
 
 // Load and render PDF document with detailed debugging
 const loadDocument = async () => {
@@ -150,6 +149,9 @@ const loadDocument = async () => {
     console.log('PDFViewer: Canvas ref is available, proceeding with render')
     // Render the current page
     await renderCurrentPage()
+    
+    // Auto-fit wide images after initial render
+    await autoFitWideImages()
 
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : 'Unknown error occurred'
@@ -258,7 +260,7 @@ const fitToWidth = async () => {
 
   try {
     const page = await currentPdf.value.getPage(props.pageNumber)
-    const containerWidth = containerRef.value.clientWidth
+    const containerWidth = containerRef.value.clientWidth - 40 // Account for padding
     const containerHeight = containerRef.value.clientHeight
     
     const optimalScale = pdfService.calculateFitScale(
@@ -267,11 +269,35 @@ const fitToWidth = async () => {
       containerHeight
     )
     
-    // Emit zoom change (parent component should handle this)
-    console.log('Optimal scale:', optimalScale * 100)
+    console.log('Fit to width - optimal scale:', optimalScale * 100)
+    
+    // Re-render with the optimal scale if it's different from current zoom
+    const optimalZoom = Math.round(optimalScale * 100)
+    if (Math.abs(optimalZoom - props.zoomLevel) > 5) { // Only change if significantly different
+      await renderCurrentPage() // This will now auto-scale based on container width
+    }
     
   } catch (err) {
     console.error('Failed to calculate fit scale:', err)
+  }
+}
+
+// Auto-fit wide images when document loads
+const autoFitWideImages = async () => {
+  if (!currentPdf.value || !containerRef.value) return
+
+  try {
+    const page = await currentPdf.value.getPage(props.pageNumber)
+    const baseViewport = page.getViewport({ scale: 1 })
+    const containerWidth = containerRef.value.clientWidth - 40
+    
+    // If page is significantly wider than container, fit to width
+    if (baseViewport.width > containerWidth * 1.1) { // 10% tolerance
+      console.log('PDFViewer: Wide image detected, auto-fitting to width')
+      await fitToWidth()
+    }
+  } catch (err) {
+    console.error('Failed to auto-fit wide images:', err)
   }
 }
 
@@ -313,9 +339,24 @@ watch(canvasRef, (newCanvas) => {
   }
 })
 
+// Watch for container ref availability
+watch(containerRef, (newContainer) => {
+  console.log('PDFViewer: Container ref changed:', !!newContainer)
+  if (newContainer && !resizeObserver.value) {
+    setupResizeObserver()
+  }
+})
+
 // Cleanup on unmount
 onUnmounted(() => {
   console.log('PDFViewer: Component unmounting, cleaning up')
+  
+  // Cleanup resize observer
+  if (resizeObserver.value) {
+    resizeObserver.value.disconnect()
+    resizeObserver.value = null
+  }
+  
   if (props.documentUrl) {
     pdfService.cleanup(props.documentUrl)
   }
@@ -391,9 +432,32 @@ const handleWheel = (event: WheelEvent) => {
   }
 }
 
+// Setup resize observer for responsive scaling
+const setupResizeObserver = () => {
+  if (!containerRef.value) return
+  
+  resizeObserver.value = new ResizeObserver((entries) => {
+    for (const entry of entries) {
+      console.log('PDFViewer: Container resized:', entry.contentRect)
+      // Debounce resize events to avoid excessive re-renders
+      setTimeout(() => {
+        if (currentPdf.value) {
+          autoFitWideImages()
+        }
+      }, 200)
+    }
+  })
+  
+  resizeObserver.value.observe(containerRef.value)
+}
+
 // Handle component mounted
 onMounted(() => {
   console.log('PDFViewer: Component mounted')
+  
+  // Setup resize observer
+  setupResizeObserver()
+  
   if (props.documentUrl && !currentPdf.value) {
     console.log('PDFViewer: Document URL present on mount, loading')
     loadDocument()
@@ -428,7 +492,8 @@ defineExpose({
 
 .pdf-canvas {
   display: block;
-  max-width: none;
+  max-width: 100%;
+  height: auto;
   min-width: 200px;
   min-height: 260px;
 }

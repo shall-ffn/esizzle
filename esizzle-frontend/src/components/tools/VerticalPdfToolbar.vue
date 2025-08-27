@@ -301,10 +301,12 @@ const addGenericBreak = async () => {
   if (!props.selectedDocument || !canAddGenericBreak.value) return
   
   try {
-    const pageIndex = props.currentPage - 1 // Convert to 0-based
+    // Position break ABOVE the selected page (legacy behavior)
+    // For page N, create break at pageIndex N-1 to appear above that page
+    const pageIndex = Math.max(0, props.currentPage - 1) // Ensure never negative
     await indexingStore.createGenericBreak(props.selectedDocument.id, pageIndex)
     emit('generic-break-added', pageIndex)
-    setStatus('Generic break added', 'success')
+    setStatus('Generic break added above page', 'success')
   } catch (error) {
     setStatus('Failed to add generic break', 'error')
     console.error('Failed to add generic break:', error)

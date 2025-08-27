@@ -69,7 +69,10 @@ def get_db_connection():
             port=params['port'],
             charset=params['charset'],
             autocommit=False,
-            cursorclass=pymysql.cursors.DictCursor
+            cursorclass=pymysql.cursors.DictCursor,
+            auth_plugin_map={'mysql_native_password': ''},
+            server_public_key=None,
+            sql_mode=''
         )
         
         logger.info("Database connection established")
@@ -134,12 +137,11 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                     OriginalName,
                     PageCount,
                     Path,
-                    CreatedBy,
                     DateCreated,
                     DateUpdated,
                     Deleted
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """
             
@@ -159,8 +161,7 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                 split_range.get('comments'),                # Comments
                 original_name,                              # OriginalName (from source document)  
                 page_count,                                 # PageCount
-                s3_key,                                     # Path (S3 key, can be None initially)
-                metadata.get('userId', 1),                  # CreatedBy
+                "\\",                                       # Path (default backslash like existing records)
                 datetime.now(timezone.utc),                 # DateCreated
                 datetime.now(timezone.utc),                 # DateUpdated
                 False                                       # Deleted
@@ -337,12 +338,10 @@ def update_database_records(source_document_id: int, bookmarks: List[Dict[str, A
                     if bookmark_id and result_image_id:
                         cursor.execute("""
                             UPDATE ImageBookmark 
-                            SET ResultImageID = %s,
-                                DateUpdated = %s
+                            SET ResultImageID = %s
                             WHERE ID = %s
                         """, (
                             result_image_id,
-                            datetime.now(timezone.utc),
                             bookmark_id
                         ))
                 

@@ -411,32 +411,91 @@ namespace EsizzleAPI.Repositories
 
         public async Task<bool> UpdateProcessingSessionAsync(string sessionId, string status, string? errorMessage = null)
         {
+            const int maxRetries = 3;
+            const int baseDelayMs = 500;
+            
+            for (int attempt = 0; attempt <= maxRetries; attempt++)
+            {
+                try
+                {
+                    using var connection = _dbConnectionFactory.CreateConnection();
+                    
+                    var completedDate = (status == "Completed" || status == "Failed") ? DateTime.UtcNow : (DateTime?)null;
+
+                    const string sql = @"
+                        UPDATE ProcessingSessions 
+                        SET Status = @status, 
+                            ErrorMessage = @errorMessage,
+                            CompletedDate = @completedDate
+                        WHERE SessionId = @sessionId";
+
+                    var rowsAffected = await connection.ExecuteAsync(sql, new
+                    {
+                        status,
+                        errorMessage,
+                        completedDate,
+                        sessionId
+                    });
+
+                    if (rowsAffected > 0)
+                    {
+                        if (attempt > 0)
+                        {
+                            Console.WriteLine($"[UpdateProcessingSessionAsync] Successfully updated session {sessionId} after {attempt + 1} attempts");
+                        }
+                        return true;
+                    }
+
+                    // Session not found - check if it exists before retrying
+                    var exists = await SessionExistsAsync(sessionId);
+                    if (!exists && attempt < maxRetries)
+                    {
+                        Console.WriteLine($"[UpdateProcessingSessionAsync] Session {sessionId} not found (attempt {attempt + 1}), retrying...");
+                        
+                        // Exponential backoff
+                        var delay = baseDelayMs * (int)Math.Pow(2, attempt);
+                        await Task.Delay(delay);
+                        continue;
+                    }
+
+                    Console.WriteLine($"[UpdateProcessingSessionAsync] Session {sessionId} not found after {attempt + 1} attempts");
+                    return false;
+                }
+                catch (Exception ex)
+                {
+                    if (attempt == maxRetries)
+                    {
+                        Console.WriteLine($"[UpdateProcessingSessionAsync] Failed to update session {sessionId} after {maxRetries + 1} attempts: {ex.Message}");
+                        return false;
+                    }
+                    
+                    Console.WriteLine($"[UpdateProcessingSessionAsync] Error updating session {sessionId} (attempt {attempt + 1}): {ex.Message}, retrying...");
+                    
+                    // Exponential backoff
+                    var delay = baseDelayMs * (int)Math.Pow(2, attempt);
+                    await Task.Delay(delay);
+                }
+            }
+
+            return false;
+        }
+
+        public async Task<bool> SessionExistsAsync(string sessionId)
+        {
             using var connection = _dbConnectionFactory.CreateConnection();
             
-            var completedDate = (status == "Completed" || status == "Failed") ? DateTime.UtcNow : (DateTime?)null;
-
             try
             {
                 const string sql = @"
-                    UPDATE ProcessingSessions 
-                    SET Status = @status, 
-                        ErrorMessage = @errorMessage,
-                        CompletedDate = @completedDate
+                    SELECT COUNT(1) 
+                    FROM ProcessingSessions 
                     WHERE SessionId = @sessionId";
-
-                var rowsAffected = await connection.ExecuteAsync(sql, new
-                {
-                    status,
-                    errorMessage,
-                    completedDate,
-                    sessionId
-                });
-
-                return rowsAffected > 0;
+                var count = await connection.QuerySingleAsync<int>(sql, new { sessionId });
+                return count > 0;
             }
             catch
             {
-                // Table may not exist; silence errors for legacy DB
+                // Table may not exist; return false for legacy DB
                 return false;
             }
         }

@@ -411,6 +411,7 @@ const handleDocumentTypeCleared = () => {
 const handleSetBreakClicked = async (pageIndex: number) => {
   if (!mainStore.selectedDocument) return
   try {
+    // pageIndex is already calculated as "above the selected page" from IndexingToolbar
     await indexingStore.createBookmark(mainStore.selectedDocument.id, pageIndex)
   } catch (error) {
     console.error('Failed to create bookmark:', error)

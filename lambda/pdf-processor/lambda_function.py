@@ -65,36 +65,68 @@ def lambda_handler(event, context):
     Returns:
         dict: Processing result with status and details
     """
+    # Enhanced logging for troubleshooting
+    import os
+    print(f"=== LAMBDA HANDLER STARTED ===")
+    print(f"Event type: {type(event)}")
+    print(f"Event content: {event}")
+    print(f"Context: {context}")
+    print(f"Environment variables:")
+    for key, value in os.environ.items():
+        if key.startswith(('DEBUG', 'S3', 'DB', 'API')):
+            print(f"  {key}={value}")
+    print(f"=== LAMBDA HANDLER PROCESSING ===")
+    
+    if os.environ.get('DEBUG_MODE') == 'true':
+        print("DEBUG_MODE is enabled - continuing with verbose logging...")
+    else:
+        print("DEBUG_MODE is not enabled or not set to 'true'")
+    
     session_id = None
     
     try:
         logger.info(f"PDF Processor Lambda started. Event: {json.dumps(event)}")
+        print(f"STEP 1: Starting payload parsing...")
         
         # Parse and validate input payload
         payload = parse_and_validate_payload(event)
         session_id = payload.get('sessionId')
         
+        print(f"STEP 2: Payload parsed successfully - SessionId: {session_id}, DocumentId: {payload['documentId']}")
         logger.info(f"Processing session {session_id} for document {payload['documentId']}")
         
+        # Verify session exists before starting processing
+        print(f"STEP 3: Verifying processing session exists...")
+        from api_callbacks import verify_session_exists
+        if not verify_session_exists(session_id):
+            print(f"WARNING: Processing session {session_id} not found, attempting to continue anyway...")
+        
         # Update processing status to 'processing'
+        print(f"STEP 4: Updating processing status to 'processing'...")
         update_processing_status(session_id, 'processing', progress=10, 
                                 message='Starting PDF processing...')
         
         # Process based on operation type
         operation = payload.get('operation', 'split_document')
+        print(f"STEP 5: Processing operation type: {operation}")
         
         if operation == 'split_document':
+            print(f"STEP 6: Starting document splitting process...")
             results = process_document_splitting(payload)
+            print(f"STEP 7: Document splitting completed - {len(results)} results")
         else:
             raise PDFProcessingError(f"Unsupported operation: {operation}")
         
         # Update processing status to completed
+        print(f"STEP 8: Updating processing status to 'completed'...")
         update_processing_status(session_id, 'completed', progress=100,
                                 message=f'Successfully processed {len(results)} documents')
         
         # Link results back to API
+        print(f"STEP 9: Linking results back to API...")
         link_processing_results(payload['documentId'], results)
         
+        print(f"STEP 10: Processing completed successfully!")
         logger.info(f"Processing completed successfully for session {session_id}")
         
         return {
@@ -303,8 +335,9 @@ def calculate_split_ranges(bookmarks: List[Dict], total_pages: int) -> List[Dict
     Returns:
         list: Split ranges with start/end pages and document type info
         
-    Note: Single bookmark at page 0 should be handled by API (IndexOnly case),
-          not sent to Lambda for processing.
+    Note: Bookmarks are SPLIT POINTS, not document starts. Each bookmark creates 
+          a break, resulting in documents BEFORE and AFTER the break position.
+          Single bookmark at page 0 should be handled by API (IndexOnly case).
     """
     if not bookmarks:
         # No bookmarks - single document covering all pages
@@ -328,26 +361,62 @@ def calculate_split_ranges(bookmarks: List[Dict], total_pages: int) -> List[Dict
     
     ranges = []
     
+    # Process bookmarks to create ranges
+    # Each bookmark creates a range that starts FROM that bookmark's position
+    current_start = 0
+    
     for i, bookmark in enumerate(sorted_bookmarks):
-        start_page = bookmark['pageIndex']
+        split_point = bookmark['pageIndex']
         
-        # Calculate end page (next bookmark or end of document)
-        if i + 1 < len(sorted_bookmarks):
-            end_page = sorted_bookmarks[i + 1]['pageIndex'] - 1
-        else:
-            end_page = total_pages - 1
-            
-        # Ensure valid range
-        if start_page <= end_page:
-            ranges.append({
-                'startPage': start_page,
-                'endPage': end_page,
-                'documentTypeId': bookmark['documentTypeId'],
-                'documentTypeName': bookmark['documentTypeName'],
-                'documentDate': bookmark.get('documentDate'),
-                'comments': bookmark.get('comments'),
-                'bookmarkId': bookmark['bookmarkId']
-            })
+        # Create a range from current_start up to (but not including) this split point
+        if current_start < split_point:
+            if i == 0:
+                # First range: pages before first bookmark are unlabeled
+                ranges.append({
+                    'startPage': current_start,
+                    'endPage': split_point - 1,
+                    'documentTypeId': None,
+                    'documentTypeName': 'Unlabeled Pages',
+                    'documentDate': None,
+                    'comments': 'Pages before first bookmark',
+                    'bookmarkId': None
+                })
+            else:
+                # Subsequent ranges get the PREVIOUS bookmark's document type
+                prev_bookmark = sorted_bookmarks[i-1]
+                ranges.append({
+                    'startPage': current_start,
+                    'endPage': split_point - 1,
+                    'documentTypeId': prev_bookmark['documentTypeId'],
+                    'documentTypeName': prev_bookmark['documentTypeName'],
+                    'documentDate': prev_bookmark.get('documentDate'),
+                    'comments': prev_bookmark.get('comments'),
+                    'bookmarkId': prev_bookmark['bookmarkId']
+                })
+        
+        # Update current_start for next range
+        current_start = split_point
+    
+    # Handle remaining pages after the last bookmark
+    if current_start < total_pages:
+        last_bookmark = sorted_bookmarks[-1]
+        ranges.append({
+            'startPage': current_start,
+            'endPage': total_pages - 1,
+            'documentTypeId': last_bookmark['documentTypeId'],
+            'documentTypeName': last_bookmark['documentTypeName'],
+            'documentDate': last_bookmark.get('documentDate'),
+            'comments': last_bookmark.get('comments'),
+            'bookmarkId': last_bookmark['bookmarkId']
+        })
+    
+    # Sort ranges by startPage to ensure correct processing order
+    ranges.sort(key=lambda x: x['startPage'])
+    
+    logger.info(f"Calculated {len(ranges)} split ranges from {len(bookmarks)} bookmarks:")
+    for i, range_info in enumerate(ranges):
+        logger.info(f"  Range {i+1}: Pages {range_info['startPage']}-{range_info['endPage']} "
+                   f"({range_info['documentTypeName']}, BookmarkId: {range_info['bookmarkId']})")
     
     return ranges
 

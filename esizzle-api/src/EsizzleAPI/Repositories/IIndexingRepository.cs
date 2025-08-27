@@ -75,6 +75,11 @@ namespace EsizzleAPI.Repositories
         Task<bool> UpdateProcessingSessionAsync(string sessionId, string status, string? errorMessage = null);
         
         /// <summary>
+        /// Check if processing session exists
+        /// </summary>
+        Task<bool> SessionExistsAsync(string sessionId);
+        
+        /// <summary>
         /// Get processing session by ID
         /// </summary>
         Task<ProcessingSessionDto?> GetProcessingSessionAsync(string sessionId);

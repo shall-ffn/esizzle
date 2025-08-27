@@ -111,30 +111,43 @@ namespace EsizzleAPI.Services
             _logger.LogInformation("LOCAL MODE: Would invoke '{FunctionName}' with payload:\n{Payload}", 
                 functionName, jsonPayload);
 
-            // Optional: Try to invoke local debug script if configured
+            // Optional: Try to invoke local debug script if configured (ASYNC - fire and forget)
             var localLambdaUrl = _configuration.GetValue<string>("Lambda:LocalUrl");
             if (!string.IsNullOrEmpty(localLambdaUrl))
             {
                 try
                 {
-                    using var httpClient = new HttpClient();
-                    httpClient.Timeout = TimeSpan.FromMinutes(5); // Lambda can take time
-                    
-                    var content = new StringContent(jsonPayload, System.Text.Encoding.UTF8, "application/json");
-                    var response = await httpClient.PostAsync($"{localLambdaUrl}/{functionName}", content);
-                    
-                    if (response.IsSuccessStatusCode)
+                    // Fire and forget - don't wait for response to match AWS Lambda async behavior
+                    _ = Task.Run(async () =>
                     {
-                        _logger.LogInformation("LOCAL MODE: Successfully called local Lambda simulator");
-                    }
-                    else
-                    {
-                        _logger.LogWarning("LOCAL MODE: Local Lambda simulator returned {StatusCode}", response.StatusCode);
-                    }
+                        try
+                        {
+                            using var httpClient = new HttpClient();
+                            httpClient.Timeout = TimeSpan.FromMinutes(5); // Lambda can take time
+                            
+                            var content = new StringContent(jsonPayload, System.Text.Encoding.UTF8, "application/json");
+                            var response = await httpClient.PostAsync($"{localLambdaUrl}/{functionName}", content);
+                            
+                            if (response.IsSuccessStatusCode)
+                            {
+                                _logger.LogInformation("LOCAL MODE: Successfully called local Lambda simulator");
+                            }
+                            else
+                            {
+                                _logger.LogWarning("LOCAL MODE: Local Lambda simulator returned {StatusCode}", response.StatusCode);
+                            }
+                        }
+                        catch (Exception ex)
+                        {
+                            _logger.LogError(ex, "LOCAL MODE: Failed to call local Lambda simulator: {Error}", ex.Message);
+                        }
+                    });
+                    
+                    _logger.LogInformation("LOCAL MODE: Queued async call to local Lambda simulator at {Url}", localLambdaUrl);
                 }
                 catch (Exception ex)
                 {
-                    _logger.LogWarning(ex, "LOCAL MODE: Failed to call local Lambda simulator, continuing with simulation");
+                    _logger.LogWarning(ex, "LOCAL MODE: Failed to queue local Lambda simulator call, continuing with simulation");
                 }
             }
 

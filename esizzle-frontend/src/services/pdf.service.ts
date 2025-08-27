@@ -109,13 +109,29 @@ export class PDFService {
       const scale = options.scale || 1
       const rotation = options.rotation || 0
 
-      // Get viewport with scale and rotation
-      const viewport = page.getViewport({ scale, rotation })
+      // Get initial viewport to determine page dimensions
+      const baseViewport = page.getViewport({ scale: 1, rotation })
+      
+      // Calculate container width (subtract padding)
+      const container = canvas.closest('.pdf-viewer-container') as HTMLElement
+      const containerWidth = container ? container.clientWidth - 40 : 800 // 40px total padding
+      
+      // Calculate optimal scale to fit width if page is wider than container
+      let finalScale = scale
+      if (baseViewport.width > containerWidth && scale === 1) {
+        finalScale = Math.min(containerWidth / baseViewport.width, 2) // Cap at 200%
+        console.log(`PDF.js: Auto-scaling wide page from ${baseViewport.width}px to fit ${containerWidth}px container, scale: ${finalScale}`)
+      }
+      
+      // Get viewport with calculated scale and rotation
+      const viewport = page.getViewport({ scale: finalScale, rotation })
       console.log(`PDF.js: Got viewport for page ${pageNumber}:`, {
         width: viewport.width,
         height: viewport.height,
         scale: viewport.scale,
-        rotation: viewport.rotation
+        rotation: viewport.rotation,
+        containerWidth,
+        autoScaled: finalScale !== scale
       })
       
       const context = canvas.getContext('2d')

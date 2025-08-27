@@ -261,3 +261,9 @@ pip install -r requirements.txt
 ```
 
 This local debugging setup allows you to **test the complete Lambda workflow** without deploying to AWS, making development and debugging much faster! 🚀
+
+
+## Sam
+```bash
+sam local start-api --port 8080 --profile shall_array-prod 
+```

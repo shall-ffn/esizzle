@@ -238,13 +238,16 @@ namespace EsizzleAPI.Controllers
         }
 
         /// <summary>
-        /// Process bookmarks (rename or split)
+        /// Create a processing session for document processing
         /// </summary>
-        [HttpPost("{documentId}/process-bookmarks")]
-        public async Task<ActionResult<ProcessingSessionDto>> ProcessBookmarks(
+        [HttpPost("{documentId}/create-processing-session")]
+        public async Task<ActionResult<ProcessingSessionDto>> CreateProcessingSession(
             int documentId,
             [FromBody] ProcessBookmarksRequest request)
         {
+            _logger.LogInformation("CreateProcessingSession called for document {DocumentId} with {BookmarkCount} bookmarks", 
+                documentId, request?.Bookmarks?.Count ?? 0);
+            
             try
             {
                 // Validate bookmarks exist and are valid
@@ -279,13 +282,73 @@ namespace EsizzleAPI.Controllers
                 var session = await _indexingRepository.CreateProcessingSessionAsync(
                     documentId, processingType, GetUserId());
 
-                // Queue lambda function for processing
+                _logger.LogInformation("Created processing session {SessionId} for document {DocumentId}", 
+                    session.SessionId, documentId);
+
+                return Ok(session);
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to create processing session for document {DocumentId}", documentId);
+                return StatusCode(500, new { message = "Failed to create processing session" });
+            }
+        }
+
+        /// <summary>
+        /// Start processing for an existing session
+        /// </summary>
+        [HttpPost("{documentId}/start-processing/{sessionId}")]
+        public async Task<ActionResult> StartProcessing(
+            int documentId,
+            string sessionId,
+            [FromBody] ProcessBookmarksRequest request)
+        {
+            try
+            {
+                // Verify session exists (using lightweight validation with enhanced error handling)
+                try
+                {
+                    var sessionExists = await _indexingRepository.SessionExistsAsync(sessionId);
+                    if (!sessionExists)
+                    {
+                        _logger.LogWarning("Processing session {SessionId} not found during StartProcessing", sessionId);
+                        return NotFound(new { message = "Processing session not found" });
+                    }
+                    
+                    _logger.LogInformation("Session {SessionId} validated successfully, starting processing", sessionId);
+                }
+                catch (Exception dbEx)
+                {
+                    _logger.LogError(dbEx, "Database error during session validation for {SessionId}: {Error}", 
+                        sessionId, dbEx.Message);
+                    return StatusCode(500, new { 
+                        message = "Database error during session validation", 
+                        sessionId = sessionId,
+                        detail = dbEx.Message 
+                    });
+                }
+
+                // Determine processing type based on bookmark count
+                string processingType;
+                if (request.Bookmarks.Count == 0)
+                {
+                    processingType = "SimpleIndexing";
+                }
+                else if (request.Bookmarks.Count == 1 && request.Bookmarks[0].PageIndex == 0)
+                {
+                    processingType = "IndexOnly";
+                }
+                else
+                {
+                    processingType = "DocumentSplitting";
+                }
+
                 if (processingType == "DocumentSplitting")
                 {
                     var lambdaPayload = new
                     {
                         documentId = documentId,
-                        sessionId = session.SessionId,
+                        sessionId = sessionId,
                         operation = "split_document",
                         bookmarks = request.Bookmarks.Select(b => new
                         {
@@ -296,11 +359,17 @@ namespace EsizzleAPI.Controllers
                             documentDate = b.DocumentDate,
                             comments = b.Comments
                         }).ToList(),
-                        metadata = request.DocumentMetadata
+                        metadata = new 
+                        {
+                            userId = GetUserId(),
+                            documentDate = request.DocumentMetadata?.DocumentDate,
+                            comments = request.DocumentMetadata?.Comments,
+                            documentTypeId = request.DocumentMetadata?.DocumentTypeId
+                        }
                     };
 
                     await _lambdaService.InvokeAsync("pdf-processor", lambdaPayload);
-                    _logger.LogInformation("Queued document splitting for session {SessionId}", session.SessionId);
+                    _logger.LogInformation("Queued document splitting for session {SessionId}", sessionId);
                 }
                 else
                 {
@@ -317,8 +386,49 @@ namespace EsizzleAPI.Controllers
                     await _indexingRepository.UpdateDocumentTypeAsync(
                         documentId, metadata.DocumentTypeId, metadata.DocumentDate, metadata.Comments);
                     
-                    await _indexingRepository.UpdateProcessingSessionAsync(session.SessionId, "Completed");
-                    _logger.LogInformation("Completed simple indexing for session {SessionId}", session.SessionId);
+                    await _indexingRepository.UpdateProcessingSessionAsync(sessionId, "Completed");
+                    _logger.LogInformation("Completed simple indexing for session {SessionId}", sessionId);
+                }
+
+                return NoContent();
+            }
+            catch (Exception ex)
+            {
+                _logger.LogError(ex, "Failed to start processing for session {SessionId}", sessionId);
+                return StatusCode(500, new { message = "Failed to start processing" });
+            }
+        }
+
+        /// <summary>
+        /// Process bookmarks (rename or split) - Legacy endpoint for backward compatibility
+        /// </summary>
+        [HttpPost("{documentId}/process-bookmarks")]
+        public async Task<ActionResult<ProcessingSessionDto>> ProcessBookmarks(
+            int documentId,
+            [FromBody] ProcessBookmarksRequest request)
+        {
+            _logger.LogInformation("ProcessBookmarks called for document {DocumentId} with {BookmarkCount} bookmarks", 
+                documentId, request?.Bookmarks?.Count ?? 0);
+            
+            try
+            {
+                // Use two-step approach for better session management
+                // Step 1: Create processing session
+                var createSessionResponse = await CreateProcessingSession(documentId, request);
+                if (createSessionResponse.Result is not OkObjectResult sessionResult || 
+                    sessionResult.Value is not ProcessingSessionDto session)
+                {
+                    return createSessionResponse;
+                }
+
+                // Step 2: Start processing
+                var startProcessingResponse = await StartProcessing(documentId, session.SessionId, request);
+                if (startProcessingResponse is not NoContentResult)
+                {
+                    // If start processing failed, mark session as failed
+                    await _indexingRepository.UpdateProcessingSessionAsync(session.SessionId, "Failed", 
+                        "Failed to start processing after session creation");
+                    return StatusCode(500, new { message = "Failed to start processing after session creation" });
                 }
 
                 return Ok(session);

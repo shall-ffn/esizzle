@@ -220,8 +220,10 @@ const handleActionButtonClick = () => {
   if (!props.selectedDocument) return
   
   if (props.selectedDocumentType && props.currentPage > 0) {
-    // Set break at current page
-    emit('set-break-clicked', props.currentPage - 1) // Convert to 0-based
+    // Set break ABOVE the current page (legacy behavior)
+    // For page N, create break at pageIndex N-1 to appear above that page
+    const pageIndex = Math.max(0, props.currentPage - 1) // Ensure never negative
+    emit('set-break-clicked', pageIndex)
   } else {
     // Save image data with current selections
     const metadata: DocumentMetadata = {

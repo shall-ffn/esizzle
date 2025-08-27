@@ -8,7 +8,7 @@ class ApiClient {
   constructor(baseURL: string = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:5000/api').replace('/api', '')) {
     this.client = axios.create({
       baseURL,
-      timeout: 30000,
+      timeout: 90000, // 90 seconds for document processing (Lambda can take 60+ seconds)
       headers: {
         'Content-Type': 'application/json'
       }
@@ -145,8 +145,19 @@ export const handleApiError = (error: unknown): string => {
       case 404:
         return 'The requested resource was not found.'
       case 500:
+        // More specific error message for document processing
+        if (axiosError.config?.url?.includes('process-bookmarks') || 
+            axiosError.config?.url?.includes('save-image-data')) {
+          return 'Document processing failed. Please check your selections and try again.'
+        }
         return 'Internal server error. Please try again later.'
+      case 504:
+        return 'Request timeout. The operation is taking longer than expected.'
       default:
+        // Provide specific timeout message
+        if (axiosError.code === 'ECONNABORTED') {
+          return 'Request timed out. Document processing may take longer for large files.'
+        }
         return axiosError.message || 'An unexpected error occurred.'
     }
   }

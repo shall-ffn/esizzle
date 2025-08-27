@@ -19,6 +19,7 @@ import type {
 } from '@/types/indexing'
 import type { DocumentSummary, Offering } from '@/types/domain'
 import { indexingApi } from '@/services/indexing-api'
+import { useMainStore } from '@/stores/main'
 
 export const useIndexingStore = defineStore('indexing', () => {
   // === STATE ===
@@ -322,6 +323,14 @@ export const useIndexingStore = defineStore('indexing', () => {
     if (saving.value) return
     
     try {
+      // Debug: Log current state
+      console.log('📋 executeSaveProcess debug:', {
+        documentId,
+        pendingBookmarksCount: pendingBookmarks.value.length,
+        pendingBookmarks: pendingBookmarks.value,
+        selectedDocumentType: selectedDocumentType.value?.name
+      })
+      
       // 1. Disable UI and show progress
       saving.value = true
       saveProgress.value = { current: 0, total: 4, message: 'Validating document...' }
@@ -336,6 +345,7 @@ export const useIndexingStore = defineStore('indexing', () => {
       
       // 3. Determine processing type
       const processingType = getProcessingType()
+      console.log('📋 Processing type determined:', processingType)
       
       // 4. Execute appropriate save workflow
       let result: ProcessingSessionDto
@@ -427,6 +437,7 @@ export const useIndexingStore = defineStore('indexing', () => {
   }
   
   const pollProcessingStatus = async (sessionId: string): Promise<void> => {
+    const mainStore = useMainStore()
     const maxAttempts = 30 // 5 minutes max
     let attempts = 0
     
@@ -436,9 +447,29 @@ export const useIndexingStore = defineStore('indexing', () => {
         processingSession.value = session
         
         if (session.status === 'completed' || session.status === 'error') {
+          console.log('📋 Processing completed, refreshing UI...', {
+            sessionId,
+            status: session.status,
+            documentId: session.documentId
+          })
+          
           // Final refresh of results when processing completes
           if (session.documentId) {
             await refreshProcessingResults(session.documentId)
+            
+            // 🎯 KEY FIX: Refresh the main document list to show new split documents
+            if (mainStore.selectedLoan) {
+              console.log('📋 Refreshing document list for loan:', mainStore.selectedLoan.loanId)
+              await mainStore.loadDocuments(mainStore.selectedLoan.loanId)
+              
+              // 🎯 CLEAR PDF VIEWER: Clear the selected document to reset the viewer and thumbnails
+              mainStore.selectedDocument = null
+              mainStore.selectedDocumentDetails = null
+              mainStore.documentUrl = null
+              mainStore.currentPage = 1
+              mainStore.totalPages = 0
+              console.log('📋 Cleared PDF viewer and thumbnails after document splitting')
+            }
           }
           return // Polling complete
         }
@@ -461,6 +492,9 @@ export const useIndexingStore = defineStore('indexing', () => {
     selectedBookmarkId.value = null
     currentBookmarkPage.value = null
     lastError.value = null
+    // 🎯 FIX: Clear pending bookmarks to prevent stale state
+    pendingBookmarks.value = []
+    console.log('📋 Cleared working state including pending bookmarks')
   }
   
   const clearError = () => {

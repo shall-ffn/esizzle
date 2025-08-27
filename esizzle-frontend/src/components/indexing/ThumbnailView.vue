@@ -27,82 +27,74 @@
         <div
           v-for="pageNumber in totalPages"
           :key="pageNumber"
-          :class="[
-            'thumbnail-item cursor-pointer transition-all mb-3',
-            {
-              'current-page': currentPage === pageNumber,
-              'has-bookmark': hasBookmarkOnPage(pageNumber - 1),
-              'normal-bookmark': hasBookmarkOnPage(pageNumber - 1) && getBookmarkType(pageNumber - 1) === 'normal',
-              'generic-bookmark': hasBookmarkOnPage(pageNumber - 1) && getBookmarkType(pageNumber - 1) === 'generic'
-            }
-          ]"
-          @click="selectPage(pageNumber)"
+          class="thumbnail-wrapper"
         >
-          <!-- Thumbnail Container -->
-          <div class="thumbnail-container">
-            <!-- Actual thumbnail image -->
-            <img 
-              v-if="getThumbnailUrl(pageNumber - 1)"
-              :src="getThumbnailUrl(pageNumber - 1)"
-              :alt="`Page ${pageNumber} thumbnail`"
-              class="thumbnail-image object-contain bg-white border border-gray-200 rounded"
-              @load="handleImageLoad(pageNumber)"
-              @error="handleImageError(pageNumber)"
-            />
-            <!-- Fallback when no thumbnail available -->
-            <div v-else class="thumbnail-image bg-gray-100 border border-gray-200 rounded shadow-sm">
-              <div class="flex flex-col items-center justify-center h-full p-2">
-                <DocumentIcon class="h-12 w-12 text-gray-400 mb-2" />
-                <div class="text-xs text-gray-500 text-center">
-                  Page {{ pageNumber }}
+          <!-- Break indicator ABOVE this thumbnail (if bookmark exists for this pageIndex) -->
+          <div 
+            v-if="hasBookmarkOnPage(pageNumber - 1)"
+            class="break-indicator mb-2"
+          >
+            <div class="flex items-center">
+              <div class="flex-1 h-px bg-gray-300"></div>
+              <div 
+                :class="[
+                  'px-3 py-1 text-xs font-medium rounded-full border-2 border-white shadow-md mx-2',
+                  {
+                    'bg-green-100 text-green-800': getBookmarkType(pageNumber - 1) === 'normal',
+                    'bg-orange-100 text-orange-800': getBookmarkType(pageNumber - 1) === 'generic'
+                  }
+                ]"
+              >
+                {{ getDocumentTypeName(pageNumber - 1) || (getBookmarkType(pageNumber - 1) === 'generic' ? 'GENERIC BREAK' : 'DOCUMENT BREAK') }}
+              </div>
+              <div class="flex-1 h-px bg-gray-300"></div>
+            </div>
+          </div>
+
+          <!-- Thumbnail item -->
+          <div
+            :class="[
+              'thumbnail-item cursor-pointer transition-all mb-3',
+              {
+                'current-page': currentPage === pageNumber
+              }
+            ]"
+            @click="selectPage(pageNumber)"
+          >
+            <!-- Thumbnail Container -->
+            <div class="thumbnail-container">
+              <!-- Actual thumbnail image -->
+              <img 
+                v-if="getThumbnailUrl(pageNumber - 1)"
+                :src="getThumbnailUrl(pageNumber - 1)"
+                :alt="`Page ${pageNumber} thumbnail`"
+                class="thumbnail-image object-contain bg-white border border-gray-200 rounded"
+                @load="handleImageLoad(pageNumber)"
+                @error="handleImageError(pageNumber)"
+              />
+              <!-- Fallback when no thumbnail available -->
+              <div v-else class="thumbnail-image bg-gray-100 border border-gray-200 rounded shadow-sm">
+                <div class="flex flex-col items-center justify-center h-full p-2">
+                  <DocumentIcon class="h-12 w-12 text-gray-400 mb-2" />
+                  <div class="text-xs text-gray-500 text-center">
+                    Page {{ pageNumber }}
+                  </div>
                 </div>
+              </div>
+
+              <!-- Current page indicator -->
+              <div 
+                v-if="currentPage === pageNumber"
+                class="current-page-indicator absolute -top-1 -left-1"
+              >
+                <div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-md"></div>
               </div>
             </div>
 
-            <!-- Bookmark indicator -->
-            <div 
-              v-if="hasBookmarkOnPage(pageNumber - 1)"
-              class="bookmark-indicator absolute -top-1 -right-1"
-            >
-              <div
-                :class="[
-                  'w-4 h-4 rounded-full border-2 border-white shadow-md',
-                  {
-                    'bg-green-500': getBookmarkType(pageNumber - 1) === 'normal',
-                    'bg-orange-500': getBookmarkType(pageNumber - 1) === 'generic'
-                  }
-                ]"
-                :title="getBookmarkTooltip(pageNumber - 1)"
-              ></div>
+            <!-- Page number -->
+            <div class="text-center mt-2">
+              <span class="text-xs text-gray-600 font-medium">{{ pageNumber }}</span>
             </div>
-
-            <!-- Current page indicator -->
-            <div 
-              v-if="currentPage === pageNumber"
-              class="current-page-indicator absolute -top-1 -left-1"
-            >
-              <div class="w-4 h-4 bg-blue-500 rounded-full border-2 border-white shadow-md"></div>
-            </div>
-          </div>
-
-          <!-- Page number -->
-          <div class="text-center mt-2">
-            <span class="text-xs text-gray-600 font-medium">{{ pageNumber }}</span>
-          </div>
-
-          <!-- Document type name (if bookmark exists) with colored styling -->
-          <div v-if="hasBookmarkOnPage(pageNumber - 1)" class="text-center mt-1">
-            <span 
-              :class="[
-                'text-xs truncate block px-2 py-1 rounded text-center font-medium',
-                {
-                  'bg-green-100 text-green-800 border border-green-300': getBookmarkType(pageNumber - 1) === 'normal',
-                  'bg-orange-100 text-orange-800 border border-orange-300': getBookmarkType(pageNumber - 1) === 'generic'
-                }
-              ]"
-            >
-              {{ getDocumentTypeName(pageNumber - 1) || (getBookmarkType(pageNumber - 1) === 'generic' ? 'GENERIC BREAK' : 'DOCUMENT BREAK') }}
-            </span>
           </div>
         </div>
       </div>
@@ -298,25 +290,22 @@ watch(() => props.selectedDocument, () => {
   box-shadow: 0 0 8px rgba(59, 130, 246, 0.4);
 }
 
-/* Bookmark styling - matches legacy colors with enhanced borders */
-.thumbnail-item.has-bookmark .thumbnail-container {
-  border-width: 2px;
+/* Break indicator styling */
+.break-indicator {
+  position: relative;
+  z-index: 10;
 }
 
-.thumbnail-item.normal-bookmark .thumbnail-container {
-  border-color: #22c55e; /* Light green border for normal breaks */
-  box-shadow: 0 0 0 1px #22c55e, 0 0 8px rgba(34, 197, 94, 0.3); /* Green glow effect */
-  background: linear-gradient(to bottom, rgba(34, 197, 94, 0.05), rgba(34, 197, 94, 0.02)); /* Light green background tint */
+.break-indicator .h-px {
+  background: linear-gradient(to right, transparent, #d1d5db 20%, #d1d5db 80%, transparent);
 }
 
-.thumbnail-item.generic-bookmark .thumbnail-container {
-  border-color: #f97316; /* Orange border for generic breaks */
-  box-shadow: 0 0 0 1px #f97316, 0 0 8px rgba(249, 115, 22, 0.3); /* Orange glow effect */
-  background: linear-gradient(to bottom, rgba(249, 115, 22, 0.05), rgba(249, 115, 22, 0.02)); /* Light orange background tint */
+/* Wrapper for each thumbnail + break */
+.thumbnail-wrapper {
+  position: relative;
 }
 
 /* Indicators */
-.bookmark-indicator,
 .current-page-indicator {
   z-index: 10;
 }

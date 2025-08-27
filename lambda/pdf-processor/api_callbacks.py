@@ -149,32 +149,92 @@ def update_processing_status(session_id: str, status: str, progress: Optional[in
     Returns:
         bool: True if update successful
     """
+    max_retries = 3
+    base_delay = 1.0  # 1 second base delay
+    
+    for attempt in range(max_retries + 1):
+        try:
+            endpoint = f"/api/documents/processing/{session_id}/status"
+            
+            payload = {
+                'status': status,
+                'timestamp': datetime.utcnow().isoformat() + 'Z'
+            }
+            
+            if progress is not None:
+                payload['progress'] = progress
+                
+            if message:
+                payload['message'] = message
+                
+            if error:
+                payload['error'] = error
+            
+            logger.info(f"Updating processing status for session {session_id}: {status} (attempt {attempt + 1})")
+            
+            response = make_api_request('PUT', endpoint, payload)
+            
+            logger.info(f"Successfully updated processing status for session {session_id}")
+            return True
+            
+        except APICallbackError as e:
+            # Check if this is a 404 error (session not found)
+            if "404" in str(e) and attempt < max_retries:
+                logger.warning(f"Session {session_id} not found (attempt {attempt + 1}), retrying after delay...")
+                
+                # Exponential backoff with jitter
+                delay = base_delay * (2 ** attempt) + (attempt * 0.1)
+                import time
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(f"Failed to update processing status for session {session_id} after {attempt + 1} attempts: {e}")
+                return False
+                
+        except Exception as e:
+            if attempt < max_retries:
+                logger.warning(f"Error updating processing status for session {session_id} (attempt {attempt + 1}): {e}, retrying...")
+                
+                # Exponential backoff
+                delay = base_delay * (2 ** attempt)
+                import time
+                time.sleep(delay)
+                continue
+            else:
+                logger.error(f"Failed to update processing status for session {session_id} after {max_retries + 1} attempts: {e}")
+                return False
+    
+    return False
+
+def verify_session_exists(session_id: str) -> bool:
+    """
+    Verify that a processing session exists before attempting operations
+    
+    Args:
+        session_id: Processing session ID to verify
+        
+    Returns:
+        bool: True if session exists and is accessible
+    """
     try:
         endpoint = f"/api/documents/processing/{session_id}/status"
         
-        payload = {
-            'status': status,
-            'timestamp': datetime.utcnow().isoformat() + 'Z'
-        }
+        logger.info(f"Verifying session exists: {session_id}")
         
-        if progress is not None:
-            payload['progress'] = progress
-            
-        if message:
-            payload['message'] = message
-            
-        if error:
-            payload['error'] = error
+        response = make_api_request('GET', endpoint)
         
-        logger.info(f"Updating processing status for session {session_id}: {status}")
-        
-        response = make_api_request('PUT', endpoint, payload)
-        
-        logger.info(f"Successfully updated processing status for session {session_id}")
+        logger.info(f"Session {session_id} exists and is accessible")
         return True
         
+    except APICallbackError as e:
+        if "404" in str(e):
+            logger.warning(f"Session {session_id} does not exist or is not accessible")
+        else:
+            logger.error(f"Error verifying session {session_id}: {e}")
+        return False
+        
     except Exception as e:
-        logger.error(f"Failed to update processing status for session {session_id}: {e}")
+        logger.error(f"Unexpected error verifying session {session_id}: {e}")
         return False
 
 def link_processing_results(document_id: int, results: List[Dict[str, Any]]) -> bool:
@@ -200,14 +260,14 @@ def link_processing_results(document_id: int, results: List[Dict[str, Any]]) -> 
                 'startPage': result['startPage'],
                 'endPage': result['endPage'],
                 'pageCount': result['pageCount'],
-                'documentTypeId': result['documentTypeId'],
-                'documentTypeName': result['documentTypeName'],
+                'documentTypeId': result['documentTypeId'] if result['documentTypeId'] is not None else 0,
+                'documentTypeName': result['documentTypeName'] or '',
                 'filename': result['filename'],
                 'processingStatus': result['processingStatus']
             }
             
             # Include optional fields if present
-            if 'bookmarkId' in result:
+            if 'bookmarkId' in result and result['bookmarkId'] is not None:
                 api_result['bookmarkId'] = result['bookmarkId']
                 
             api_results.append(api_result)

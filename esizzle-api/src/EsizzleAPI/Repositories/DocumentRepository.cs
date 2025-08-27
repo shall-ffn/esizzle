@@ -37,7 +37,9 @@ public class DocumentRepository : IDocumentRepository
                 i.AssetNumber
             FROM Image i
             LEFT JOIN ImageDocTypeMasterList dt ON i.DocTypeManualID = dt.ID
-            WHERE i.LoanID = @loanId AND i.Deleted = 0
+            WHERE i.LoanID = @loanId 
+                AND i.Deleted = 0 
+                AND i.ImageStatusTypeID != 7  -- Exclude Obsolete documents (status 7)
             ORDER BY 
                 CASE WHEN dt.Name IS NULL THEN 1 ELSE 0 END,
                 dt.Name,

@@ -13,17 +13,18 @@ Globals:
     Environment:
       Variables:
         # Environment variables for local development
-        S3_BUCKET_NAME: esizzle-documents-dev
-        DB_HOST: localhost
-        DB_USER: root
-        DB_PASSWORD: password
-        DB_NAME: loanmaster
+        S3_BUCKET_NAME: ffncorp.com-dev-db-cluster
+        DB_HOST: host.docker.internal
+        DB_USER: esizzle_api
+        DB_PASSWORD: api_password
+        DB_NAME: Loanmaster
         DB_PORT: 3306
         API_BASE_URL: http://host.docker.internal:5000  # For SAM local to reach your API
         API_SERVICE_TOKEN: local-sam-token
         API_TIMEOUT: 30
         API_RETRY_ATTEMPTS: 3
         DEBUG_MODE: true
+        AWS_DEFAULT_REGION: us-east-1
 
 # Lambda Functions
 Resources:
