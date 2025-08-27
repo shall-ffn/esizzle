@@ -313,12 +313,13 @@ namespace EsizzleAPI.Repositories
         {
             using var connection = _dbConnectionFactory.CreateConnection();
             
-            // Update document with metadata only
+            // Update document with metadata and set status to Production (1) for indexed documents
             const string updateDocSql = @"
                 UPDATE Image 
                 SET DocTypeManualID = @DocumentTypeId, 
                     DocumentDate = @DocumentDate, 
                     Comments = @Comments, 
+                    ImageStatusTypeID = @ImageStatusTypeID,
                     DateUpdated = @DateUpdated
                 WHERE ID = @DocumentId";
 
@@ -327,6 +328,7 @@ namespace EsizzleAPI.Repositories
                 DocumentTypeId = metadata.DocumentTypeId,
                 DocumentDate = metadata.DocumentDate,
                 Comments = metadata.Comments,
+                ImageStatusTypeID = 1, // Status 1 = Production (indexed documents)
                 DateUpdated = DateTime.UtcNow,
                 DocumentId = documentId
             });
@@ -596,6 +598,8 @@ namespace EsizzleAPI.Repositories
                 throw new ArgumentException("Original document not found", nameof(originalDocumentId));
 
             // Determine status based on document type (generic vs normal)
+            // Status 1 (Production) = Named documents ready for production
+            // Status 20 (NeedsWork) = Generic documents requiring additional work
             var statusId = documentTypeId == -1 ? 20 : 1; // 20 = Needs Work, 1 = Production
             var docTypeId = documentTypeId == -1 ? (int?)null : documentTypeId; // NULL for generic breaks
             

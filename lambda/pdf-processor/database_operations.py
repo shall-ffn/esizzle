@@ -127,7 +127,7 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
             loan_id = source_info['LoanID']
             original_name = source_info['OriginalName']
             
-            # Create new Image record
+            # Create new Image record with proper status
             insert_sql = """
                 INSERT INTO Image (
                     LoanID,
@@ -137,11 +137,12 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                     OriginalName,
                     PageCount,
                     Path,
+                    ImageStatusTypeID,
                     DateCreated,
                     DateUpdated,
                     Deleted
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
+                    %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s
                 )
             """
             
@@ -153,6 +154,12 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                 except:
                     document_date = None
             
+            # Determine status based on document type (generic vs normal)
+            # Status 1 (Production) = Named documents ready for production
+            # Status 20 (NeedsWork) = Generic documents requiring additional work
+            document_type_id = split_range.get('documentTypeId')
+            status_id = 20 if document_type_id == -1 else 1  # 20 = NeedsWork, 1 = Production
+            
             # Prepare values
             values = (
                 loan_id,                                    # LoanID
@@ -162,6 +169,7 @@ def create_image_record(source_document_id: int, split_range: Dict[str, Any],
                 original_name,                              # OriginalName (from source document)  
                 page_count,                                 # PageCount
                 "\\",                                       # Path (default backslash like existing records)
+                status_id,                                  # ImageStatusTypeID (20 for generic, 1 for named)
                 datetime.now(timezone.utc),                 # DateCreated
                 datetime.now(timezone.utc),                 # DateUpdated
                 False                                       # Deleted
